@@ -1,0 +1,484 @@
+---
+title: "utility_simulation"
+author: "Ben Best"
+date: "January 27, 2016"
+output: html_document
+---
+
+## Utility Simulation
+
+Inspired by chat with Chris Costello Jan 12, 2016.
+
+$$
+u = \alpha N + (1-\alpha)C
+$$
+
+where:
+
+- $u$: utility
+- $\alpha$: tradeoff coefficient
+- $N$: net present value to industry
+- $C$: conservation of species
+
+questions:
+
+- how is utility tangent to efficiency frontier, but equation above has no concept of that tangent?
+
+```{r get rasters}
+# setwd('~/github/consmap-prep')
+suppressPackageStartupMessages({
+  library(raster)
+  library(ggmap)
+  library(leaflet)
+  library(RColorBrewer)
+  library(dplyr)
+  library(readr)
+  library(tidyr)
+  library(DT)
+  library(xts)
+  library(dygraphs)
+  library(graticule)
+  library(rphylopic)
+  #library(GISTools) # using GISTools::
+  library(scales)
+  })
+select = dplyr::select
+source('functions.R')
+source('utility_simulation_app/functions.R')
+
+r_b = raster(stack('data/birds/spp_birds_aea.grd'), 'BIRDS_nw') %>%
+  crop_na() #; iplot(r_b, 'r_b')
+r_d = raster(stack('data/industry_wind_aea.grd'), 'depth') %>%
+  crop(r_b) %>%
+  mask(r_b) %>%
+  crop_na() #; iplot(r_d, 'r_d')
+r_i = raster('data/wind/npv_US_millions_8_idwf.tif') %>%
+  projectRaster(r_b) %>% 
+  crop(r_b) %>%
+  mask(r_b) %>%
+  crop_na() #; iplot(r_i, 'r_i')
+```
+
+Garthe & Hüppop (2004) designated the top 60% of scores as areas of “concern” and top 20% as areas of “major concern”. 
+
+```{r contour birds}
+q_b20 = quantile(r_b, probs=0.2)
+q_b60 = quantile(r_b, probs=0.6)
+plot(r_b)
+contour(
+  r_b, add=TRUE, drawlabels=F,
+  levels = c(q_b20, q_b60), 
+  #labels = c(                   '20%',                    '60%'), 
+  col    = c(                   'red',                   'blue'))
+```
+
+
+```{r tradeoff data}
+# get birds vs invest plot and identify 
+S = stack(r_i, r_b)
+d = values(S) %>%
+  as.data.frame() %>%
+  select(
+    B_ssi = BIRDS_nw, 
+    I_usm = npv_US_millions_8_idwf) %>%
+  mutate(
+    i = row_number()) %>%
+  filter(!is.na(B_ssi) & !is.na(I_usm)) %>%
+  # consider only profitable sites, ie y > 0
+  filter(I_usm > 0) %>%
+  # normalize 0 to 1
+  mutate(
+    x = rescale(B_ssi),
+    y = rescale(I_usm))
+
+# get pareto rows
+d = d %>%
+  mutate(pareto = is_pareto(x, y, rev_x=T))
+
+# get pareto labels
+d = d %>%
+  left_join(
+    d %>% 
+      filter(pareto) %>%
+      arrange(x) %>%
+      mutate(
+        label = LETTERS[row_number()],
+        alpha = (1 - y) / (x - y)) %>%
+      select(i, label, alpha),
+    by='i') %>%
+  arrange(pareto, label, desc(y), desc(x)) %>%
+  tbl_df()
+
+save(d, file='utility_simulation_app/d.Rdata')
+```
+
+```{r plot pareto with dots}
+# ggplot birds vs industry
+#ggplot(d, aes(B_ssi, I_usm)) +
+#  geom_point()
+#ggplot(d, aes(x, y)) +
+#  geom_point()
+
+# plot with pareto dots
+load(file='utility_simulation_app/d.Rdata')
+#xlim=rev(range(B)))
+ggplot(d, aes(x, y)) +
+  geom_point() +
+  scale_x_continuous(trans='reverse') +
+  geom_point(data=filter(d, pareto), color='red') +
+  geom_text(aes(x, y, label=label), data = filter(d, pareto), colour='red', size=4, hjust=1, vjust=1)
+```
+
+```{r table of pareto points}
+# show pareto points
+d %>%
+  filter(pareto) %>%
+  datatable()
+```
+
+
+```{r create raster surfaces, eval=F}
+# create x,y,u rasters
+library(raster)
+library(rasterVis)
+n = 110
+x = seq(0,1.1,length.out=n)
+y = seq(0,1.1,length.out=n)
+z = sqrt(outer(x^2, y^2, "+"))
+r_x = raster(matrix(x,nrow=n,ncol=n, byrow=T), xmn=min(x), xmx=max(x), ymn=min(y), ymx=max(y)) # plot(r_x)
+r_y = raster(matrix(y,nrow=n,ncol=n, byrow=F), xmn=min(x), xmx=max(x), ymn=min(y), ymx=max(y)) %>%
+  flip('y') # plot(r_y)
+#r_z = raster(z, xmn=min(x), xmx=max(x), ymn=min(y), ymx=max(y)) %>%
+#  flip('y') # plot(r_z)
+#r_z = sqrt(r_x^2 + r_y^2)
+#plot(r_z)
+#levelplot(sqrt(r_x^2 + r_y^2), par.settings=RdBuTheme, contour=T) # rasterVis::levelplot
+```
+
+
+```{r manipulate ggplot, eval=F}
+# manipulate ggplot
+library(manipulate)
+manipulate({ # a = 0
+  
+  # calculate utility surface
+  r_u = a * r_x + (1 - a) * r_y # plot(r_z)
+
+  # calculate utility for points
+  d = d %>%
+    mutate(
+      u = a * x + (1 - a) * y,
+      u_max = u == max(u))
+  
+  # get line, per y = mx + b
+  u_slope         = - a/(1 - a)
+  u_max_intercept = filter(d, u_max)$u / (1 - a)
+
+  # # TODO: plot with pareto dots colored by value
+  # ggplot(d, aes(x, y, color=u)) +
+  #   #geom_point(color='gray') +
+  #   geom_point() +
+  #   #scale_colour_gradient(limits=c(3, 4), low="red")
+  #   #scale_colour_brewer(type='seq', palette='YlOrRd') + # RColorBrewer::display.brewer.all()
+  #   #scale_colour_distiller(name='', palette='Spectral', trans='reverse', breaks = pretty_breaks(n = 10)) +
+  #   scale_colour_distiller(name='', palette='Spectral', breaks = pretty_breaks(n = 10)) +
+  #   geom_point(data=filter(d, pareto), color='black') +
+  #   geom_point(data=filter(d, u_max), color='red') +
+  #   geom_abline(slope = u_slope, intercept = u_max_intercept, color='red') +
+  #   geom_text(aes(x, y, label=label), data = filter(d, pareto), colour='black', size=4, hjust=1, vjust=1)
+    
+  # plot raster
+  p = rasterVis::gplot(r_u, maxpixels=n^2+1) + 
+    geom_tile(aes(fill = value)) +
+    scale_fill_distiller(name='', palette='Spectral', trans='reverse', breaks = pretty_breaks(n = 10)) +
+    #geom_contour(aes(x=x,y=y,fill=value), color = "white", alpha = 0.5) + 
+    coord_equal() + 
+    scale_x_continuous(expand = c(0, 0)) + scale_y_continuous(expand = c(0, 0)) +
+    geom_point(aes(x, y), data=d, color='gray') + 
+    geom_point(aes(x, y), data=filter(d, pareto), color='black') +
+    geom_text(aes(x, y, label=label), data = filter(d, pareto), colour='black', size=4, hjust=1, vjust=1) +
+    ggtitle(sprintf('a = %0.2f, %s', a, filter(d, u_max)$label)) +
+    geom_vline(xintercept = quantile(d$x, probs=0.8, na.rm=T), linetype=1, col='red') +
+    geom_vline(xintercept = quantile(d$x, probs=0.4, na.rm=T), linetype=1, col='blue')
+  
+  # so which a?
+  # for siting owed, want to max conservation, so place owed at site w/ least bird cons value. -> flip axes.
+  # label: bird conservation value 1 to 0. "Sensitivity to birds"
+  
+
+  if (is.infinite(u_slope)){
+    # when u_slope is Inf (a=1), draw vline
+    x_intercept = filter(d, u_max)$x
+    p = p +
+      geom_vline(xintercept = x_intercept)
+  } else {
+    p = p +
+      geom_abline(slope = u_slope, intercept = u_max_intercept)
+  }
+  print(p)
+  
+}, a = slider(0, 1, step=0.05))
+```
+
+rank sites across range of reasonable values
+TODO: compare ranks when using original values vs normalized
+
+
+```{r sim full}
+# simulate across range of values
+d_sim = simulate_utility(
+  d, x='B_ssi', y='I_usm', a_vec = seq(0, 1, 0.1), 
+  fxn=lazyeval::lazy( a * y - (1 - a) * x ),
+  fxn_slope=lazyeval::lazy( -1*(1 - a)/a ), 
+  fxn_intercept=lazyeval::lazy( u[u_max] / a ))
+
+# summarize sites by sum of utility across alphas
+d_sum = d_sim %>%
+  group_by(i, x, y) %>%
+  summarize(
+    u_avg = mean(u_sim)) %>%
+  ungroup() %>%
+  arrange(desc(u_avg)) %>%
+  mutate(
+    rank = row_number(),
+    pct_rank = percent_rank(u_avg)) #%>%
+  # left_join(
+  #   d_sim %>%
+  #     filter(u_max==T) %>%
+  #     arrange(a_sim) %>%
+  #     group_by(i) %>%
+  #     mutate(
+  #       a_sim_m = median(a_sim)
+  #     )
+  #     summarize(
+  #       a_sim   = first(a_sim),
+  #       u_slope = first(u_slope),
+  #       u_yintercept = first(u_yintercept)) %>%
+  #     mutate(
+  #       u_max = T) %>%
+  #     select(i, a_sim, u_max, u_slope, u_yintercept),
+  #   by='i') %>%
+  # mutate(
+  #   u_max = ifelse(is.na(u_max), F, T))
+write_csv(d_sum, '~/github/siting/data/utility/utility_birds-vs-industry8_v2_data.csv')
+
+# print pareto sites
+# d_sum %>%
+#   left_join(
+#     filter(d, pareto) %>% 
+#       tbl_df() %>%
+#       select(i, label), 
+#     by='i') %>%
+#   arrange(desc(u_avg)) %>%
+#   datatable()
+```
+
+
+```{r plot tradeoff of simulation}
+# get ticks for x and y based on original values
+brks = c(0,0.25,0.5,0.75,1)
+lbls_B = sprintf('%0.3f', approx(x=d$x, y=d$B_ssi, xout=brks, rule=c(2,2))$y)
+lbls_I = sprintf('%0.1f', approx(x=d$y, y=d$I_usm, xout=brks, rule=c(2,2))$y)
+
+d_a = d_sim %>%
+  filter(u_max==T) %>%
+  arrange(a_sim)
+
+pts = read_csv(
+'label,i
+E,1615
+B,4138
+F,918
+D,2095
+C,3430
+A,4322')
+
+# summary plot
+sz = 4 # text size
+p = ggplot(d_sum, aes(x, y, colour=u_avg)) +
+  # rectangles for quadrant descriptions
+  annotate('rect', fill='blue', alpha=0.1, xmin=0, ymax=1,
+    xmax=quantile(d_sum$x, probs=0.4, na.rm=T),
+    ymin=quantile(d_sum$y, probs=0.6, na.rm=T)) +
+  annotate('rect', fill='green', alpha=0.1,
+    xmin=0,
+    xmax=quantile(d_sum$x, probs=0.8, na.rm=T),
+    ymin=quantile(d_sum$y, probs=0.2, na.rm=T),
+    ymax=quantile(d_sum$y, probs=0.6, na.rm=T)) +
+  annotate('rect', fill='green', alpha=0.1,
+    xmin=quantile(d_sum$x, probs=0.4, na.rm=T),
+    xmax=quantile(d_sum$x, probs=0.8, na.rm=T),
+    ymin=quantile(d_sum$y, probs=0.6, na.rm=T),
+    ymax=1) +
+  annotate('rect', fill='red', alpha=0.1,
+    xmin=0,
+    xmax=1,
+    ymin=0,
+    ymax=quantile(d_sum$y, probs=0.2, na.rm=T)) +
+  annotate('rect', fill='red', alpha=0.1,
+    xmin=quantile(d_sum$x, probs=0.8, na.rm=T),
+    xmax=1,
+    ymin=quantile(d_sum$y, probs=0.2, na.rm=T),
+    ymax=1) +
+  # points
+  geom_point() +
+  #xlim(0,1) + ylim(0,1) +
+  #coord_fixed(ratio = 1, xlim=c(0,1), ylim=c(0,1), expand=F) +
+  coord_equal(xlim=c(0,1), ylim=c(0,1), expand=F) +
+  #coord_cartesian(xlim=c(0,1), ylim=c(0,1), expand=F) +
+  scale_x_continuous(
+     name = 'Bird Sensitivity', breaks=brks, labels=lbls_B, trans='reverse') +
+   scale_y_continuous(
+     name = 'Wind Profitablity ($NPV)', breaks=brks, labels=lbls_I) +
+  scale_colour_gradientn(colours = brewer.pal(11, 'Spectral'), name=expression(bar(u))) + # brewer.pal(9, 'Blues') # YlGnBu # brewer.pal(9, 'GnBu'); brewer.pal(11, 'Spectral'); 
+  with(filter(d_a, a_sim == median(a_sim)), geom_abline(slope = u_slope, intercept = u_yintercept, linetype=3)) + # median a
+  # with(filter(d_sum, a_sim == min(a_sim, na.rm=T)),                                                                          # min a
+  #   {if ( is.infinite(u_slope) ) geom_vline(                                     
+  #     xintercept = x, linetype=3) else geom_abline(
+  #       slope = u_slope, intercept = u_yintercept, linetype=3)}) +
+  # with(filter(d_sum, a_sim == max(a_sim, na.rm=T)),                                                                          # max a
+  #   {if ( is.infinite(u_slope) ) geom_vline(                                     
+  #     xintercept = x, linetype=3) else geom_abline(
+  #       slope = u_slope, intercept = u_yintercept, linetype=3)}) +
+  geom_vline(xintercept = quantile(d_sum$x, probs=(1-0.2), na.rm=T), linetype=2, col='red') +
+  geom_vline(xintercept = quantile(d_sum$x, probs=(1-0.6), na.rm=T), linetype=2, col='blue') +
+  geom_hline(yintercept = quantile(d_sum$y, probs=   0.2 , na.rm=T), linetype=2, col='red') +
+  geom_hline(yintercept = quantile(d_sum$y, probs=   0.6 , na.rm=T), linetype=2, col='blue') +
+  # annotations, see: 
+  #   https://github.com/hadley/ggplot2/wiki/Plotmath
+  #   http://vis.supstat.com/2013/04/mathematical-annotation-in-r/
+  annotate('text', x = 0.08, y = .88, label = 'tilde(a)', parse=T, size=sz, angle=-45) +
+  annotate(
+    'text', label = "' ' %up% 20~'%'~most~sensitive", parse=T, size=sz, angle=90, vjust=0, hjust=0,
+    x = quantile(d_sum$x, probs=(1-0.2), na.rm=T), 
+    y = quantile(d_sum$y, probs=0.01, na.rm=T)) +
+  annotate(
+    'text', label = "' ' %up% 60~'%'", parse=T, size=sz, angle=90, vjust=0, hjust=0,
+    x = quantile(d_sum$x, probs=(1-0.6), na.rm=T), 
+    y = quantile(d_sum$y, probs=0.01, na.rm=T)) +
+  annotate(
+    'text', label = "' ' %down% 20~'%'~least~profitable", parse=T, size=sz, vjust=1, hjust=0,
+    x = quantile(d_sum$x, probs=0.99, na.rm=T), 
+    y = quantile(d_sum$y, probs=0.2, na.rm=T)) +
+  annotate(
+    'text', label = "' ' %down% 60~'%'", parse=T, size=sz, vjust=1, hjust=0,
+    x = quantile(d_sum$x, probs=0.99, na.rm=T), 
+    y = quantile(d_sum$y, probs=0.6, na.rm=T)) +
+  geom_text(
+    aes(x, y, label=label), colour='black', size=4, hjust=0, vjust=1, data = pts %>%
+      left_join(d_sum, by='i')) +
+  geom_point(
+    aes(x, y, label=label), colour='black', size=0.3, data = pts %>%
+      left_join(d_sum, by='i'))
+
+  # theme(
+  #   panel.background = element_rect(fill='gray95'),
+  #   panel.grid.major = element_line(colour = 'gray30'),
+  #   panel.grid.minor = element_line(colour = 'gray30'))
+
+# library(plotly)
+# ggplotly(p)
+
+pdf = 'img/birds_vs_industry8_v2-utility-simulation.pdf'
+ggsave(pdf, p) # , scale=0.5)
+system(sprintf('open %s', pdf))
+```
+
+
+```{r mk raster of utility}
+# transfer dataframe to raster of avg utility
+r_u = r_b
+r_u[!1:ncell(r_u) %in% d_sum$i] = NA #-1 # min(d_sum$u_avg,na.rm=T) -> -0.2959718
+r_u[d_sum$i] = d_sum$u_avg
+r_u = mask(r_u, r_b) # iplot(r_u)
+writeRaster(r_u, '~/github/siting/data/utility/utility_birds-vs-industry8_v2_raster')
+
+# raster of ids
+r_i = r_u
+values(r_i) = 1:ncell(r_i)
+```
+
+
+```{r click raster, eval=F}
+col = rev(colorRampPalette(brewer.pal(11,'Spectral'))(255))
+plot(r_u, col=col, xaxs='r', yaxs='r', asp=1, useRaster=F, xaxt='n', yaxt='n')
+
+quantile_vals = c(0.4,0.6,0.8)
+quantile_cols = c('darkblue','darkgreen','darkred')
+quantile_labs = c('60%','40%','20%')
+quantile_lwd = 2
+contour(r_u, levels = quantile(r_u, probs=quantile_vals), col=quantile_cols, labels=quantile_labs, drawlabels=T, lwd=quantile_lwd, add=T)
+
+# interactively select corners of bbox
+sub = raster::select(r_u)
+d_sum %>%
+  filter(i %in% raster::extract(r_i, sub@extent)) %>%
+  arrange(desc(u_avg)) %>%
+  select(i, rank) %>%
+  head(1)
+
+# 1615,1
+# 4138,4
+#  918,28
+# 2095,36
+# 3430,62
+```
+
+
+```{r plot raster}
+lbl_pts = pts %>%
+  left_join(
+    d_sum, by='i') %>%
+  rename(x_0=x, y_0=y) %>%
+  inner_join(
+    coordinates(r_b) %>%
+      as.data.frame() %>%
+      mutate(
+        i = row_number()),
+    by='i')
+
+source('functions.R')
+plot_raster(
+  r_u, r_depth, ma, pdf_path='img/map_birds_vs_industry8_utility.pdf', awc=T, depth_do = F, quantile_do = T,
+  lbl_pts = lbl_pts, lbl_col='black')
+```
+
+```{r write_csv birds_vs_wind8_utilitypts}
+op = options()
+options(scipen=0)
+options(digits=0)
+
+lbl_pts %>%
+  # get lon, lat
+  bind_cols(
+    SpatialPoints(
+      lbl_pts %>% select(x, y) %>% as.data.frame(), proj4string=crs(r_b)) %>%
+      spTransform(crs('+proj=longlat +datum=WGS84')) %>%
+      coordinates() %>%
+      as.data.frame() %>%
+      select(lon=x, lat=y)) %>%
+  select(label, i, x_aea=x, y_aea=y, lon, lat, u_avg, rank) %>%
+  # get original data
+  left_join(d %>% select(-label), by='i') %>%
+  mutate(
+    lon = round(lon,2),
+    lat = round(lat,2),
+    B_ssi = round(B_ssi,2),
+    I_usm = round(I_usm,1),
+    u_avg = round(u_avg,3)) %>%
+  select(
+    Label=label, Longitude=lon, Latitude=lat, 
+    `Bird Sensitivity`=B_ssi, `Wind Profitability (NPV $USM)`=I_usm,
+    `Avg Utility`=u_avg, `Rank`=rank) %>%
+  write_csv('data/birds_vs_wind8_utilitypts.csv')
+```
+
+
+# TODO: redo cetacean conservation
+
+```{r}
+
+
+
+```
+

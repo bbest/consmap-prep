@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://www.w3.org/2000/svg" height="501px" width="206px" xmlns:cc="http://creativecommons.org/ns#" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<title>Energy: wind turbine 1</title>
+<desc xmlns:ian_image_library="http://ian.umces.edu/imagelibrary/">
+      <ian_image_library:title>Energy: wind turbine 1</ian_image_library:title>
+      <ian_image_library:descr>Illustration of a wind turbine</ian_image_library:descr>
+      <ian_image_library:scene>
+		<ian_image_library:contains>symbol,vector,illustration,development,infrastructure,energy,hydro,power,wind-powered,electrical,generators,electricity,wind,turbine</ian_image_library:contains>
+        <ian_image_library:when>2011-03-23</ian_image_library:when> 
+	  </ian_image_library:scene>
+   </desc>
+    <metadata
+		id="metadata-iil-12ac4bd6337c7b4419bdc09ff7e89f71">
+      <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <cc:license
+           rdf:resource="http://creativecommons.org/licenses/by-sa/3.0/" />
+        <dc:title>Energy: wind turbine 1</dc:title>
+		<dc:date>2011-03-23</dc:date>
+        <dc:creator>
+			<cc:Agent>
+				<dc:title>Tracey Saxby</dc:title>
+			</cc:Agent>	
+		</dc:creator>   
+		<dc:rights>
+          <cc:Agent>
+            <dc:title>Tracey Saxby, Integration and Application Network</dc:title>
+          </cc:Agent>
+        </dc:rights>
+        <dc:publisher>
+          <cc:Agent>
+            <dc:title>Integration and Application Network</dc:title>
+          </cc:Agent>
+        </dc:publisher>
+		<dc:identifier>http://ian.umces.edu/imagelibrary/displayimage-6877.html</dc:identifier>
+        <dc:source>http://ian.umces.edu/imagelibrary/displayimage-6877.html</dc:source>
+        <dc:language>en-US</dc:language>
+        <dc:subject>
+          <rdf:Bag>
+            <rdf:li>symbol,vector,illustration,development,infrastructure,energy,hydro,power,wind-powered,electrical,generators,electricity,wind,turbine</rdf:li>
+          </rdf:Bag>
+        </dc:subject>
+        <dc:coverage></dc:coverage>
+        <dc:description>Illustration of a wind turbine</dc:description>
+        <dc:contributor>
+          <cc:Agent>
+            <dc:title></dc:title>
+          </cc:Agent>
+        </dc:contributor>
+      </cc:Work>
+      <cc:License
+         rdf:about="http://creativecommons.org/licenses/by-sa/3.0/">
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Reproduction" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#Distribution" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Notice" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#Attribution" />
+        <cc:permits
+           rdf:resource="http://creativecommons.org/ns#DerivativeWorks" />
+        <cc:requires
+           rdf:resource="http://creativecommons.org/ns#ShareAlike" />
+      </cc:License>
+    </rdf:RDF>
+  </metadata>
+	
+<defs>
+</defs>
+<path fill="#D9D9E4" stroke="#00233D" stroke-width="0.1" d="M84.031,130.084c0,0,8.319-6.473,12.068-8.992
+	c3.747-2.521,17.284-6.77,18.525-5.979c1.242,0.793,3.507,6.812,2.652,8.437c-0.856,1.625-13.568,8.716-15.889,9.707
+	c-2.318,0.988-8.265,2.56-8.265,2.56L84.031,130.084z"/>
+<radialGradient id="ian_symbols_32a82fc329d96174614f57782a46654b" cx="90.6006" cy="317.0747" r="129.8369" gradientUnits="userSpaceOnUse">
+	<stop  offset="0" style="stop-color:#F1F1F7"/>
+	<stop  offset="1" style="stop-color:#E9E7EE"/>
+</radialGradient>
+<path fill="url(#ian_symbols_32a82fc329d96174614f57782a46654b)" stroke="#00233D" stroke-width="0.1" d="M86.287,134.1c0,0-14.897,359.309-10.055,362.255
+	s7.07,3.695,14.72,3.695c7.651,0,10.699-0.872,14.3-3.779s-8.179-358.652-8.179-358.652L86.287,134.1z"/>
+<linearGradient id="ian_symbols_9c1b2b15d2b9d43421901a79b3904305" gradientUnits="userSpaceOnUse" x1="539.3438" y1="-300.7856" x2="576.291" y2="-300.7856" gradientTransform="matrix(0.5866 -0.8099 0.8099 0.5866 18.0998 763.019)">
+	<stop  offset="0" style="stop-color:#B0B8C6"/>
+	<stop  offset="1" style="stop-color:#6788A5"/>
+</linearGradient>
+<path fill="url(#ian_symbols_9c1b2b15d2b9d43421901a79b3904305)" stroke="#00233D" stroke-width="0.1" stroke-miterlimit="10" d="M84.596,145.235
+	c0,0,7.465-1.626,11.975-1.904c5.029-0.31,12.116-7.556,16.301-10.826c1.162-0.911,5.261-10.579,4.406-8.954
+	c-0.856,1.625-13.568,8.716-15.889,9.707c-2.318,0.988-8.265,2.56-8.265,2.56L84.596,145.235z"/>
+<linearGradient id="ian_symbols_1e8c86c36932f3b4551aa1dce9a122ad" gradientUnits="userSpaceOnUse" x1="391.0557" y1="-372.1416" x2="391.0557" y2="-504.4482" gradientTransform="matrix(0.8252 -0.5648 0.5648 0.8252 -11.1472 649.8312)">
+	<stop  offset="0.0061" style="stop-color:#CBCFD8"/>
+	<stop  offset="0.1394" style="stop-color:#FFFFFF"/>
+	<stop  offset="1" style="stop-color:#FFFFFF"/>
+</linearGradient>
+<path fill="url(#ian_symbols_1e8c86c36932f3b4551aa1dce9a122ad)" stroke="#00233D" stroke-width="0.1" d="M44.316,1.043c0.071-1.563,2.854-0.814,2.854-0.814
+	s36.279,95.619,38.155,100.019c1.874,4.398,2.485,11.935,3.044,14.965c0.556,3.025-3.652,6.284-3.528,9.23
+	c0.123,2.946,3.686,6.204,3.686,6.204s-1.325,0.785-3.612,1.808c-2.283,1.018-3.344,2.929-3.344,2.929s0.029-3.503-0.801-7.481
+	c-0.829-3.979-3.159-7.809-7.096-17.99c-1.971-5.091-10.25-33.678-17.095-59.625C49.734,24.345,44.251,2.607,44.316,1.043z"/>
+<linearGradient id="ian_symbols_9adf8d02262d81847dd92f3d5df17d79" gradientUnits="userSpaceOnUse" x1="370.2578" y1="-315.4204" x2="445.1494" y2="-315.4204" gradientTransform="matrix(0.8252 -0.5648 0.5648 0.8252 -11.1472 649.8312)">
+	<stop  offset="0" style="stop-color:#DEE0E5"/>
+	<stop  offset="0.2424" style="stop-color:#FFFFFF"/>
+	<stop  offset="1" style="stop-color:#FFFFFF"/>
+</linearGradient>
+<path fill="url(#ian_symbols_9adf8d02262d81847dd92f3d5df17d79)" stroke="#00233D" stroke-width="0.1" d="M90.926,143.428l-0.437-3.534l3.004-2.813l2.797,1.873
+	c0,0,49.979,17.684,58.862,20.699c8.88,3.012,48.149,15.99,49.113,16.845c0.966,0.856,0.104,2.495,0.104,2.495
+	s-59.323-11.287-67.676-13.528c-8.347-2.239-29.247-9.526-31.516-10.626c-2.267-1.097-5.193-4.396-5.193-4.396
+	s-3.1-5.078-4.671-6.272C93.737,142.975,90.926,143.428,90.926,143.428z"/>
+<linearGradient id="ian_symbols_51a5066641c164e4e1ddde337ececd41" gradientUnits="userSpaceOnUse" x1="304.0654" y1="-347.645" x2="300.7976" y2="-360.7536" gradientTransform="matrix(0.8252 -0.5648 0.5648 0.8252 -11.1472 649.8312)">
+	<stop  offset="0.0242" style="stop-color:#345D85"/>
+	<stop  offset="0.2606" style="stop-color:#FFFFFF"/>
+	<stop  offset="1" style="stop-color:#FFFFFF"/>
+</linearGradient>
+<path fill="url(#ian_symbols_51a5066641c164e4e1ddde337ececd41)" stroke="#00233D" stroke-width="0.1" d="M78.673,138.682c-0.308,0.617,0.132,4.329-2.479,5.779
+	c-1.279,0.862-2.328-0.765-8.71,2.09c-6.382,2.852-15.399,14.705-27.101,29.153c-11.7,14.448-38.66,54.873-39.665,57.833
+	c-1.006,2.96-0.934,4.047,0.612,2.986c1.548-1.061,61.645-70.979,67.388-76.426c5.74-5.442,10.002-11.391,11.373-12.708
+	c1.373-1.319,4.592-2.692,4.882-2.971c0.292-0.281-3.916-0.699-4.405-1.65C80.076,141.817,78.976,138.074,78.673,138.682z"/>
+<radialGradient id="ian_symbols_4490c8e76826a094cd064792ea24e342" cx="618.6934" cy="-267.4009" r="12.8146" fx="618.8322" fy="-267.2864" gradientTransform="matrix(0.4426 -0.8967 0.8967 0.4426 47.5695 812.5204)" gradientUnits="userSpaceOnUse">
+	<stop  offset="0" style="stop-color:#FFFFFF"/>
+	<stop  offset="0.3455" style="stop-color:#FFFFFF"/>
+	<stop  offset="0.9455" style="stop-color:#CBCFD8"/>
+</radialGradient>
+<path fill="url(#ian_symbols_4490c8e76826a094cd064792ea24e342)" stroke="#00233D" stroke-width="0.1" d="M77.749,143.758c-1.015-1.333-1.402-3.511-0.451-6.068
+	c0.948-2.559,4.945-7.063,7.495-8.418c2.547-1.35,4.975-1.195,7.792,0.509c2.813,1.701,4.911,7.31,2.462,11.218
+	c-2.45,3.906-5.474,4.524-7.688,5.207c-2.217,0.682-7.717-0.782-7.717-0.782S78.759,145.095,77.749,143.758z"/>
+</svg>

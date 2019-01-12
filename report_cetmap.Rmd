@@ -1,0 +1,1130 @@
+---
+title: "README for consmap-prep"
+author: "Ben Best"
+date: "October 6, 2015"
+output: html_document
+---
+
+# Overview
+
+Once you have species distributions, how do you use them to make decisions? We're encouraged through multiple avenues (Presidential Order, Pew Report...) to move away from single species management to a holistic ecosystem-based management. So we want to combine the species distributions, but how?
+
+Borrowing from [Maxwell et al (2013)](http://www.nature.com.proxy.lib.duke.edu/ncomms/2013/131028/ncomms3688/full/ncomms3688.html), we can apply species-specific impact weight. For instance, more acoustically sensitive species have a stronger weight based on offshore pile driving as a human activity.
+
+TODO: explore weighting, sensitivity analysis:
+
+- industry weights
+- literature explore weighting:
+  - multi-criteria decision analysis
+  - IUCN /  NatureServe advice on weighting
+  - [Selig et al (2013)](http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0060284)
+- diagram of inputs / process
+
+Questions:
+1. Rather than divide by guild, should I divide by species, ie multiply guilds by # of species?
+
+# Industry
+
+
+- wind intensity
+- distance to shore
+- depth
+- slope
+
+- distance to shore / transmission. with/without Atlantic Wind Connection
+
+```{r load libraries, echo=FALSE}
+suppressPackageStartupMessages({
+  library(raster)
+  library(ggmap)
+  library(leaflet)
+  library(RColorBrewer)
+  library(dplyr)
+  library(readr)
+  library(tidyr)
+  library(DT)
+  library(xts)
+  library(dygraphs)
+  library(graticule)
+  library(rphylopic)
+  #library(GISTools) # using GISTools::
+  })
+select = dplyr::select
+
+source('functions.R')
+stk_i = stack('data/industry_wind_mer.grd')
+```
+
+```{r interactive-plots}
+# TODO: condense into single stack, opacity solid.
+iplot(raster(stk_i, 'depth'), 'depth')
+iplot(raster(stk_i, 'dist2shore'), 'dist2shore')
+iplot(raster(stk_i, 'windspeed90m'), 'windspeed90m')
+```
+
+# Species
+
+## Species Weights
+
+The species weights (**w**) are based on the NatureServe global extinction status which have a reasonable value for all species, unlike IUCN for which many are data deficient (DD).
+
+```{r spp, echo=FALSE}
+# noa pbr table ----
+
+# exclude Harbor seal, Gray seal Harp seal Hooded seal
+# all excepting 'Common bottlenose dolphin': 
+#   EC:
+#     Gulf of Maine 
+#     Western North Atlantic 
+#     Nova Scotia 
+#     Canadian east coast 
+#     North Atlantic 
+#     Gulf of Maine/Bay of Fundy 
+#   GOM:
+#     Gulf of Mexico
+#     Puerto Rico and US Virgin Islands
+# 'Common bottlenose dolphin' (n=28): 
+#   EC: 
+#     Western North Atlantic, offshore 
+#     Western North Atlantic, northern migratory coastal 
+#     Western North Atlantic, southern migratory coastal 
+#     Western North Atlantic, S. Carolina/Georgia coastal 
+#     Western North Atlantic, northern Florida coastal 
+#     Western North Atlantic, central Florida coastal 
+#     Northern North Carolina Estuarine System 
+#     Southern North Carolina Estuarine System 
+#     Northern South Carolina Estuarine System 
+#     Charleston Estuarine System 
+#     Northern Georgia/ Southern South Carolina Estuarine System 
+#     Central Georgia Estuarine System 
+#     Southern Georgia Estuarine System 
+#     Jacksonville Estuarine System 
+#     Indian River Lagoon Estuarine System 
+#     Biscayne Bay 
+#   GOM:
+#     Florida Bay 
+#     Gulf of Mexico, Continental shelf 
+#     Gulf of Mexico, eastern coastal 
+#     Gulf of Mexico, northern coastal 
+#     Gulf of Mexico, western coastal 
+#     Gulf of Mexico, Oceanic 
+#     Gulf of Mexico, bay, sound and estuary (27 stocks) 
+#     Barataria Bay 
+#     Mississippi Sound, Lake Borgne, Bay Boudreau 
+#     St. Joseph Bay 
+#     Choctawhatchee Bay 
+#     Puerto Rico and US Virgin Islands 
+#  - two morphologically and genetically distinct common bottlenose dolphin morphotypes described as the 
+#    **coastal** and **offshore** forms. spatially varies by season, and overlaps.
+
+# strip annotations/whitespaces and convert to numeric
+d_sar = read_csv('data/species/spp_noaa-marmam_atl2014.csv') %>%
+    mutate(
+      species    = str_trim(species),
+      stock_area = str_trim(stock_area),
+      nmfs_ctr   = str_trim(nmfs_ctr),
+      N_best     = as.numeric(str_replace_all(N_best,    '[^0-9.]', '')),
+      N_best_CV  = as.numeric(str_replace_all(N_best_CV, '[^0-9.]', '')),
+      N_min      = as.numeric(str_replace_all(N_min,     '[^0-9.]', '')),
+      R_max      = as.numeric(str_replace_all(R_max,     '[^0-9.]', '')),
+      Fr         = as.numeric(str_replace_all(Fr,        '[^0-9.]', '')),
+      PBR        = as.numeric(str_replace_all(PBR,       '[^0-9.]', '')),
+      injury_mortality          = as.numeric(ifelse(
+        # take upper estimate, eg '5.8' given '3.8-5.8'
+        str_detect(injury_mortality_fish_0,'-'),
+        str_replace(injury_mortality_fish_0,'.*-([0-9.]+).*','\\1'),
+        str_replace_all(injury_mortality, '[^0-9.]', ''))),
+      injury_mortality_fish     = as.numeric(ifelse(
+        # take upper estimate, eg '0.8' given '0.2-0.8'
+        str_detect(injury_mortality_fish_0,'-'),
+        str_replace(injury_mortality_fish_0,'.*-([0-9.]+).*','\\1'),
+        ifelse(
+          # take value if given CV, eg '3.4' given '3.4 (1.0)'
+          str_detect(injury_mortality_fish_0,'\\('),
+          str_replace(injury_mortality_fish_0,'([0-9.]+)[ (].*','\\1'),
+          str_replace_all(injury_mortality_fish_0, '[^0-9.]', '')))),
+      injury_mortality_fish_CV  = as.numeric(ifelse(
+        # take CV if given, eg '1.0' given '3.4 (1.0)'
+        str_detect(injury_mortality_fish_0,'\\('),
+        str_replace(injury_mortality_fish_0,'.*\\(([0-9.]+)\\)','\\1'),
+        NA)),
+      injury_mortality_ship = as.numeric(injury_mortality_ship),
+      strategic_status = str_trim(strategic_status),
+      SAR_revised = str_trim(SAR_revised))
+
+# combine all EC species (1 stock ea for EC) and summarize Common bottlenose dolphins to single stock
+d_pbr = bind_rows(
+  # EC species, except Common bottlenose dolphin and seals
+  d_sar %>%
+    filter(
+      !species %in% c(
+        'Common bottlenose dolphin',
+        'Harbor seal','Gray seal','Harp seal','Hooded seal'),
+      !stock_area %in% c('Gulf of Mexico','Puerto Rico and US Virgin Islands')),
+  # Brydes using Gulf of Mexico since none given for EC
+  #   from East Coast Bryde's Whale v1.2.pdf:
+  #     South of Gulf Stream: Estimated abundance: 7 (CV=0.58)
+  #     North of Gulf Stream: Species assumed absent; forced model to zero.)
+  d_sar %>% # arrange(species) %>% datatable()
+    filter(species == "Bryde's whale"),
+  d_sar %>%
+    filter(
+      !species %in% c(
+        'Common bottlenose dolphin',
+        'Harbor seal','Gray seal','Harp seal','Hooded seal'),
+      !stock_area %in% c('Gulf of Mexico','Puerto Rico and US Virgin Islands')),
+  # EC Common bottlenose dolphin stocks summarized to single stock
+  d_sar %>%
+    filter(
+      species == 'Common bottlenose dolphin',
+      stock_area %in% c(
+        'Western North Atlantic, offshore','Western North Atlantic, northern migratory coastal',
+        'Western North Atlantic, southern migratory coastal','Western North Atlantic, S. Carolina/Georgia coastal',
+        'Western North Atlantic, northern Florida coastal','Western North Atlantic, central Florida coastal',
+        'Northern North Carolina Estuarine System','Southern North Carolina Estuarine System',
+        'Northern South Carolina Estuarine System','Charleston Estuarine System',
+        'Northern Georgia/ Southern South Carolina Estuarine System','Central Georgia Estuarine System',
+        'Southern Georgia Estuarine System','Jacksonville Estuarine System','Indian River Lagoon Estuarine System',
+        'Biscayne Bay')) %>%
+    group_by(species) %>%
+    summarize(
+      stock_area = 'Combined North Atlantic',
+      nmfs_ctr   = paste(unique(nmfs_ctr), collapse=','),
+      N_best_CV  = weighted.mean(N_best_CV, N_best, na.rm=T),
+      R_max      = weighted.mean(R_max, N_best, na.rm=T),
+      Fr         = weighted.mean(Fr, N_best, na.rm=T),
+      injury_mortality_fish_CV  = weighted.mean(injury_mortality_fish_CV, N_best, na.rm=T),
+      # note: have to use weighted.mean before sum(N_best) b/c data frame modified in place by dplyr
+      N_best     = sum(N_best, na.rm=T), # ) %>% datatable() # 
+      N_min      = sum(N_min, na.rm=T),
+      PBR        = sum(PBR, na.rm=T),
+      injury_mortality          = sum(injury_mortality, na.rm=T),
+      injury_mortality_fish     = sum(injury_mortality_fish, na.rm=T),
+      injury_mortality_ship     = sum(injury_mortality_ship, na.rm=T),
+      strategic_status          = 'Combined',
+      SAR_revised               = 'Combined'))
+d_pbr %>% datatable()
+
+spp = read_csv('data/species/spp.csv') %>%
+  left_join(read_csv('data/species/spp_weights.csv'), by='natureserve') %>%
+  merge(d_pbr, by.x='sp_name', by.y='species', all.x=T)
+datatable(spp) # , options = list(pageLength = 5)
+
+w_spp = spp %>% 
+  group_by(sp_code) %>%
+  summarize(w = mean(w)) %>%
+  arrange(desc(w))
+datatable(w_spp)
+
+paste(intersect(spp$sp_name, d_pbr$species), collapse="','")
+#paste(setdiff(spp$sp_name, d_pbr$species), collapse="','")
+cat(paste(setdiff(d_pbr$species, spp$sp_name), collapse=": \n"))
+# Dwarf sperm whale: Kogia sima
+# Pygmy sperm whale: Kogia breviceps
+# Cuvier's beaked whale: Ziphius cavirostris
+# Blainville's beaked whale: Mesoplodon densirostris
+# Gervais beaked whale: Mesoplodon europaeus
+# Sowerby's beaked whale: Mesoplodon bidens
+# True's beaked whale: Mesoplodon mirus
+# Melon-headed whale: Peponocephala electra
+# Pilot whale, long-finned: Globicephala melas
+# Pilot whale, short-finned: Globicephala macrorhynchus
+# White-beaked dolphin: Lagenorhynchus albirostris
+# Common bottlenose dolphin: Tursiops truncatus
+
+```
+
+## Birds
+
+```{r birds tables prep, eval=F, echo=F}
+b_lyr = read_csv('data/birds/sp_AvianAverageAnnualAbundance.csv') %>%
+  select(-sp_scientific)
+  arrange(sp_common)
+b_pbr = read_csv('data/birds/watts2010_atlantic-birds_pbr.csv') %>%
+  mutate(
+    sp_common    = str_trim(sp_common),
+    species_popn = str_trim(species_popn)) %>%
+  arrange(sp_common, species_popn)
+b_popn = read_csv('data/birds/watts2010_atlantic-birds_popn.csv') %>%
+  mutate(
+    sp_common = str_trim(sp_common),
+    species_popn = str_trim(species_popn)) %>%
+  arrange(sp_common, species_popn)
+
+b = b_lyr %>%
+  left_join(
+    b_pbr %>%
+      full_join(
+        b_popn, by=c('sp_common','species_popn','aou')),
+    by='sp_common')
+# head(b)
+# datatable(b)
+write_csv(b, 'data/birds/sp_avian_watts2010.csv')
+
+b %>%
+  transmute(
+    sp_common,
+    has_pbr = !is.na(pbr),
+    has_popn_na = !is.na(popn_na)) %>%
+  select(-sp_common) %>%
+  table() %>% addmargins()
+# 
+#        has_popn_na
+# has_pbr FALSE TRUE Sum
+#   FALSE     1   20  21
+#   TRUE      7    6  13
+#   Sum       8   26  34
+  
+# make bradbury [OLD]
+read_csv('data/birds/bradbury2014_uk-bird-sensitivity-scores.csv') %>%
+  mutate(
+    sp_common    = str_trim(sp_common),
+    sp_scientific = str_trim(sp_scientific)) %>%
+  left_join(
+    read_csv('data/birds/bradbury2014_uk-bird-sensitivity-risk-ranks.csv') %>%
+      mutate(sp_common = str_trim(sp_common))
+  , by='sp_common') %>%
+  write_csv('data/birds/bradbury2014_uk-bird-sensitivity-scores_2.csv')
+  datatable()
+  
+
+b = b %>% 
+  mutate(
+    sp_scientific = str_replace(species_popn, '([A-z]+) ([A-z]+).*', '\\1 \\2'))
+b %>% select(starts_with('sp')) %>% 
+  group_by(sp_common, sp_scientific) %>%
+  summarize(sp_popns_watts2010 = n()) %>%
+  mutate(sp_scientific = replace(sp_scientific, sp_common=='Great Shearwater', 'Puffinus gravis')) %>%
+  write_csv('data/birds/sp_avianshp_scientific.csv')
+
+b = read_csv('data/birds/sp_avianshp_scientific.csv')
+b %>%
+  left_join(u, by='sp_scientific') %>%
+  select(starts_with('sp'), cons_tot) %>%
+  filter(is.na(cons_tot)) %>%
+  # datatable()
+  write_csv('data/birds/sp_avianshp_scientific_bradbury2014unmatched_notes.csv')
+  
+
+# calculating Bradbury 2014
+# a = score for highest percent of biogeographic population in England in any season; 
+#   TODO: adjust above to US Atlantic
+# b = adult survival score;
+# c = UK threat status score;
+#   TODO: adjust above to US Atlantic
+# d = Birds Directive score;
+# total conservation imp score ----
+# e = estimated percentage at blade height; 
+# f = flight manoeuvrability;
+# g = percentage of time spent flying;
+# h = nocturnal activity;
+# i = disturbance susceptibility;
+# j = habitat specialization.
+bu = 
+b %>%
+  left_join(u, by='sp_scientific') %>%
+  filter(!is.na(cons_tot)) %>%
+  #datatable()
+  mutate(
+    # collision risk score
+    cons_calc = a + b + c + d,
+    cons_test = cons_calc == cons_tot,
+    # collision risk score = a x (m + t + n)/3 
+    # [flight altitude] x ([manoeuvrability] + [percentage of time spent flying] + [nocturnal flight activity])/3
+    coll_risk_score = e * (f + g + h)/3,
+    coll_risk_rank = cut(coll_risk_score, c(30,50,82), labels=c('Very low','Low','Moderate','High','Very high'), include.lowest=T, ordered_result=T),
+    # displacement score = ((d x h) x conservation importance score)/10
+    # (([disturbance by wind farm structures, ship and helicopter traffic] x [habitat specialisation]) x conservation importance score)/10
+    displ_score = ((i * j) * cons_calc)/10
+    ) %>%
+  select(sp_common.y, e, f, g, h, coll_risk_score, coll_risk_rank, cons_calc, displ_score) %>%
+  datatable()
+# TODO: contact Bradbury about mismatch b/n scores
+
+table(!is.na(b$pbr), !is.na(b$popn_na))
+
+paste(intersect(b_lyr$sp_common, b_pbr$sp_common), collapse="','")
+paste(setdiff(b_lyr$sp_common, b_pbr$sp_common), collapse="','")
+paste(setdiff(b_pbr$sp_common, b_lyr$sp_common), collapse="','")
+cat(paste(setdiff(d_pbr$species, spp$sp_name), collapse=": \n"))
+
+
+b = read_csv('data/birds/sp_avian.csv')
+b %>%
+  left_join(
+    read_csv('data/birds/bradbury2014_uk-bird-sensitivity-scores.csv'), 
+    by='sp_scientific') %>%
+  filter(!is.na(coll_rank)) %>%
+  mutate(
+    coll_rank  = str_trim(coll_rank),
+    displ_rank = str_trim(displ_rank),
+    coll_val  = c('Very low'=1,'Low'=2,'Moderate'=3,'High'=4,'Very high'=5)[coll_rank],
+    displ_val = c('Very low'=1,'Low'=2,'Moderate'=3,'High'=4)[displ_rank]) %>% 
+  select(
+    sp_scientific, sp_common_us=sp_common.x, sp_common_uk=sp_common.y,
+    coll_rank, coll_val, displ_rank, displ_val) %>%
+  arrange(sp_scientific) %>%
+  write_csv('data/birds/sp_avian_w.csv')
+```
+
+
+```{r birds shps, eval=F, echo=F}
+
+b_w = read_csv('data/birds/sp_avian_w.csv') %>%
+  mutate(
+    shp = str_replace_all(sp_common_us, "[ '-]",''))
+
+dir_in = 'data_other/msp/AvianAverageAnnualAbundance/shp'
+dir_out = 'data_other/msp/AvianAverageAnnualAbundance/shp'
+x = 0
+
+if (exists('stk_b')) rm('stk_b')
+
+r_i = raster('data/wind/npv_US_millions_8_idwf.tif')
+stk_c = stack('data/species/spp_EC_nzw_aea.grd')
+r_c = raster(stk_c, 'ALL_nfzw') # iplot(r_C,'C_nfzw')
+
+for (shp in list.files(dir_in, pattern='.*\\.shp$')){ # shp = list.files(dir_shp, pattern='.*\\.shp$')[1]
+  
+  pfx = tools::file_path_sans_ext(shp)
+  s_c     = b_w %>% filter(str_to_lower(b_w$shp) == str_to_lower(pfx)) %>% .$sp_scientific %>% str_replace(' ', '_')
+  
+  w_displ = b_w %>% filter(str_to_lower(b_w$shp) == str_to_lower(pfx)) %>% .$displ_val
+  w_coll  = b_w %>% filter(str_to_lower(b_w$shp) == str_to_lower(pfx)) %>% .$coll_val
+  
+  if (length(w_coll)==0){
+    cat(sprintf('%s: SKIPPING b/c no w_coll\n', shp))
+    next # skip if no w
+  } else {
+    w = max(w_coll, w_displ)
+    cat(sprintf('%s: w_displ=%d, w_coll=%d, w=%d\n', shp, w_displ, w_coll, w))
+  }
+  
+  ply = readOGR(dir_in, tools::file_path_sans_ext(shp), verbose=F, p4s=leaflet:::epsg3857) %>%
+    spTransform(crs(r_c))
+  ply@data = ply@data %>%
+    mutate(
+      avg_min = as.numeric(ifelse(
+        str_detect(averageAnn,' - '),
+        str_replace(averageAnn, '([0-9.]+) - ([0-9.]+)', '\\1'),
+        str_replace(averageAnn, '([0-9.]+) \\+', '\\1'))),
+      avg_max = as.numeric(ifelse(
+        str_detect(averageAnn,' - '),
+        str_replace(averageAnn, '([0-9.]+) - ([0-9.]+)', '\\2'),
+        str_replace(averageAnn, '([0-9.]+) \\+', '\\1'))),
+      avg = (avg_min + avg_max) / 2
+    ) # spplot(ply['avg'])
+  r_n = rasterize(ply, r_c, 'avg') # iplot(r_n)
+  r_nw = log(r_n + 1) * w # plot(r_nlwc)
+  
+  # n = abundance; nlwc = ln(n+1)*SSI_collision; nlwd = ln(n+1)*SSI_displacement; nlwm = ln(n+1)*SSI_max where SSI_max[collision or displacement]
+  # TODO: n not real, based on strip transects details...
+  nms = sprintf('%s_%s', s_c, c('n','nw'))
+  
+  if (!exists('stk_b')){
+    stk_b = stack(r_n, r_nw)
+    names(stk_b) = nms
+  } else {
+    stk_b = stack(stk_b, r_n, r_nw)
+    names(stk_b) = c(names(stk_b)[1:(nlayers(stk_b)-length(nms))], nms)
+  }
+}
+
+substk = function(x, v){ # x=stk; s='_nf'
+  ext = sprintf('_%s', v)
+  lyrs = names(x)[str_sub(names(x), nchar(ext)*-1, -1) == ext]
+  raster::subset(x, lyrs)
+}
+    
+# a_i: number of species
+s_i = substk(stk_b, 'n')
+a_i = sum(!is.na(s_i), na.rm=T) # a_i_0 = a_i
+# reconcile edge effects by requiring all species present
+a_i = mask(a_i, a_i==cellStats(a_i, 'max'), maskvalue=0) # iplot(a_i,'a_i')
+
+# a_n: average species abundance
+a_n = substk(stk_b, 'n') %>%
+  sum(na.rm=T) / a_i %>%
+  mask(a_i) # iplot(a_n)
+
+# a_nw: average log species density * SSI_max weight
+a_nw = substk(stk_b, 'nw') %>%
+  sum(na.rm=T) / a_i %>%
+  mask(a_i) # iplot(a_nw)
+
+# TODO: contouring to make as pretty as Figure 6 of Bradbury 2014
+
+# add to stack
+stk_b = stack(stk_b, a_i, a_n, a_nw)
+names(stk_b) = c(names(stk_b)[1:(nlayers(stk_b)-3)], sprintf('BIRDS_%s', c('i','n','nw')))
+
+# write out raster stack per region
+writeRaster(stk_b, 'data/birds/spp_birds_aea.grd', overwrite=T)
+
+names(stk_b)
+#v = 'Larus_argentatus_n'; iplot(raster(stk_b, v), v)
+#v = 'Larus_argentatus_nw'; iplot(raster(stk_b, v), v)
+#stk_b = stack('data/birds/sp_birds.grd')
+```
+
+
+## Birds Map
+
+```{r prep birds ma r_depth}
+# bird rasters
+s_b = stack('data/birds/spp_birds_aea.grd')
+r_b = raster(s_b, 'BIRDS_nw')
+
+# crop to birds to extent
+m <- is.na(as.matrix(r_b)) # %>% addmargins()
+cols = which(colSums(m) != nrow(m))
+rows = which(rowSums(m) != ncol(m))
+e_c = extent(
+  r_b, 
+  rows[1], rows[length(rows)],
+  cols[1], cols[length(cols)])
+r_b <- crop(r_b, e_c) # plot(r_b)
+
+# get USA states
+us = getData('GADM', country="USA", level=1)
+us@data = us@data %>%
+  mutate(
+    lon = coordinates(us)[,1],
+    lat = coordinates(us)[,2],
+    code = c(setNames(state.abb, state.name), 'District of Columbia'='DC')[NAME_1])
+# get East Coast states
+ec = subset(us,
+  code %in% 
+    c('ME','VT', # NE
+      'NY','MA','RI','CT','PA','NJ','MD','DE','DC','WV','VA','NC', # Mid-Atlantic
+      'SC','GA','FL')) # South
+# ec@data %>%
+#   arrange(desc(pt_lat)) %>%
+#   .$code %>% paste0("','") %>% cat(sep='')
+# get Mid-Atlantic states
+ma_gcs = subset(us,
+  code %in% 
+    c('NY','MA','RI','CT','PA','NJ','MD','DE','DC','WV','VA','NC')) # Mid-Atlantic
+# project to aea
+ma = spTransform(ma_gcs, crs(r_b))
+# get plotting coordinates
+ma@data = ma@data %>%
+  mutate(
+    x = coordinates(ma)[,1],
+    y = coordinates(ma)[,2])
+ma_pts_manual = list( # get from plotting raster and using click()
+  NY=c(318279.0, 861861.0),
+  MA=c(583509.0, 900670.0),
+  PA=c(176331.0, 753784.4),
+  NJ=c(302205.0, 697670.0),
+  DE=c(218600.4, 532496.3),
+  MD=c(116658.7, 604601.4),
+  VA=c(87289.93, 403240.4), #58407.0, 403619.0),
+  NC=c(142765.7, 194348.2))
+for (code in names(ma_pts_manual)){
+  xy = ma_pts_manual[[code]]
+  ma@data$x[ma@data$code==code] = xy[1]
+  ma@data$y[ma@data$code==code] = xy[2]
+}
+
+library(marmap)
+r_depth = as.raster(getNOAA.bathy(-78, -66, 34, 43))
+```
+
+
+```{r map birds}
+plot_raster(r_b, r_depth, ma, pdf_path='img/study_mid-atlantic.pdf', awc=T, study_area=T, par_mar=c(4,4,0,0)+0.2) # c(bottom, left, top, right)
+plot_raster(r_b, r_depth, ma, pdf_path='img/birds_mid-atlantic.pdf', phylopic='herring gull', depth_do = F, quantile_do = T)
+```
+
+
+## InVEST + Birds
+
+```{r map invest}
+r_i6 =  mask(projectRaster(raster('data/wind/npv_US_millions_6.tif'), r_b), r_b)
+r_i8 =  mask(projectRaster(raster('data/wind/npv_US_millions_8_idwf.tif'), r_b), r_b)
+
+plot_raster(r_i6, r_depth, ma, pdf_path='img/industry_npv6_mid-atlantic.pdf', phylopic='wind turbine')
+plot_raster(r_i8, r_depth, ma, pdf_path='img/industry_npv8idwf_mid-atlantic.pdf', awc=T, phylopic='wind turbine')
+```
+
+```{r map cetaceans}
+s_c  = stack('data/species/spp_EC_nzw_aea.grd')
+r_c = raster(s_c,'ALL_nfzw') %>%
+  mask(extend(r_b, r_c)) %>%
+  crop_na() #; iplot(r_c, 'nzw')
+
+r_c = r_c
+plot_raster(r_c, r_depth, ma, pdf_path='img/cetaceans_mid-atlantic.pdf', phylopic='balaena')
+
+for (i in 1:12){
+  r_c_i = raster(s_c,sprintf('ALL_nfzw_%02d', i)) %>%
+    mask(extend(r_b, .)) %>%
+    crop_na() #; iplot(r_c, sprintf('nzw_c%02d', i))
+  plot_raster(r_c_i, r_depth, ma, pdf_path=sprintf('img/cetaceans_mid-atlantic_%02d.pdf',i), phylopic='balaena')
+}
+```
+
+
+Scale 0-1.
+
+```{r birds vs industry iplot, eval=F, echo=F}
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(sp)
+library(rgeos)
+
+r_b = raster(stack('data/birds/spp_birds_aea.grd'), 'BIRDS_nw') %>%
+  crop_na() #; iplot(r_b, 'r_b')
+r_d = raster(stack('data/industry_wind_aea.grd'), 'depth') %>%
+  crop(r_b) %>%
+  mask(r_b) %>%
+  crop_na() #; iplot(r_d, 'r_d')
+r_i = raster('data/wind/npv_US_millions_8_idwf.tif') %>%
+  projectRaster(r_b) %>% 
+  crop(r_b) %>%
+  mask(r_b) %>%
+  crop_na() #; iplot(r_i, 'r_i')
+
+# get birds vs invest plot and identify 
+S = stack(r_i, r_b)
+d = values(S) %>%
+  as.data.frame() %>%
+  select(
+    B_ssi = BIRDS_nw, 
+    I_usm = npv_US_millions_8_idwf) %>%
+  mutate(
+    i = row_number()) %>%
+  filter(!is.na(B_ssi) & !is.na(I_usm)) %>%
+  # consider only profitable sites, ie y > 0
+  filter(I_usm > 0) %>%
+  # normalize 0 to 1
+  mutate(
+    x = rescale(B_ssi),
+    y = rescale(I_usm))
+
+# test plot
+#par(mar=c(5,4,1,1)) # c(bottom, left, top, right)
+#with(d, plot(x, y, xlab='B', ylab='I', xlim=rev(range(x))))
+#di = identify(d$x, x$y, col='red', labels=x$i, cex=0.8, font=2)
+#dput(di) # xi = c(3L, 23L, 24L, 25L, 569L, 719L, 770L, 820L, 845L, 1539L, 1566L, 1570L)
+#points(d$x[di], d$y[di], col='red')
+
+# get efficiency frontier with convex hull of points
+i_h = chull(d$x, d$y) # lines(d$x[i_h], d$y[i_h], col='blue'); text(d$x[i_h], d$y[i_h], d$i[i_h], col='red')
+# then abline to max(y), abline to max(x)
+h = data_frame(
+  x = d$x[i_h],
+  y = d$y[i_h])
+d_f = bind_rows(
+  # bottom, right
+  data_frame(
+    x = min(h$x),
+    y = min(h$y)),
+  # frontier curve
+  filter(h,
+    y >= y[which.min(x)],
+    x <= x[which.max(y)]),
+  # top, left
+  data_frame(
+    x = max(h$x),
+    y = max(h$y))) %>%
+  mutate(
+    i = row_number())
+#lines(d_f$x, d_f$y, col='red')
+#text(d_f$x, d_f$y, d_f$i, col='blue')
+
+# get indices for frontier
+i_f = semi_join(d, filter(h,
+    y >= y[which.min(x)],
+    x <= x[which.max(y)]), by=c('x','y')) %>%
+  .$i  # 4256 4081 4138 1615  918
+lbl_f = LETTERS[1:length(i_f)]
+
+# to get distance to frontier ----
+# - make polygon of convex hull
+# - make grid points
+# - calculate distance from frontier line to grid points
+
+# make poly for within
+ply = SpatialPolygons(list(Polygons(list(Polygon(bind_rows(
+  # bottom, left
+  data_frame(
+    x = max(h$x),
+    y = min(h$y)),
+  # frontier curve
+  d_f %>% select(x, y),
+  # bottom, left
+  data_frame(
+    x = max(h$x),
+    y = min(h$y))) %>%
+  select(x, y) %>%
+  as.matrix())), 1)))
+# expand ply by 1 to include frontier edge
+ply = rgeos::gBuffer(ply, width=0.01) #plot(ply, add=T, col='gray')
+
+# make grid of points
+z_n = 100
+pts_grid = expand.grid(x = seq(min(d_f$x), max(d_f$x), length.out = z_n),
+            y = seq(min(d_f$y), max(d_f$y), length.out = z_n)) %>%
+  SpatialPoints() # %>% points(col='purple')
+# remove points outside poly
+pts_grid = pts_grid[!is.na(over(pts_grid, ply))] # %>% points(col='black')
+
+# calculate distance to frontier for plotting
+ln = SpatialLines(list(Lines(list(Line(d_f %>% select(x, y) %>% as.matrix())), '1')))
+g = coordinates(pts_grid) %>% as.data.frame()
+g$z = as.vector(gDistance(pts_grid, ln, byid=TRUE))
+#g$z_log = log(g$z)
+#g$z_log = log10(g$z)
+g$z_log = g$z
+
+# plot 
+brks = c(0,0.25,0.5,0.75,1)
+lbls_B = sprintf('%0.3f', approx(x=d$x, y=d$B_ssi, xout=brks, rule=c(2,2))$y)
+lbls_I = sprintf('%0.1f', approx(x=d$y, y=d$I_usm, xout=brks, rule=c(2,2))$y)
+
+p = ggplot(d, aes(x, y)) +
+  #geom_raster(aes(x, y, z = z, fill=z), data=g) +  #, size=1, color=z
+  geom_raster(aes(x, y, z = z_log, fill=z_log), data=g) +  #, size=1, color=z
+  #geom_tile(aes(x, y, z = z_log, fill=z_log), data=g) +  #, size=1, color=z
+  scale_fill_distiller(name='', palette='Spectral', trans='reverse', breaks = pretty_breaks(n = 10)) +
+  #geom_contour(aes(x, y, z = z, fill=z), data=g, color = "white", alpha = 0.5) + 
+  geom_contour(aes(x, y, z = z_log, fill=z_log), data=g, color = "white", alpha = 0.5) + 
+  #geom_path(data=select(d_f, x, y), col=brewer.pal(11, 'Spectral')[10], lwd=6) + 
+  geom_point() + 
+  geom_text(aes(x, y, label=lbl_f), data = d[match(i_f, d$i),], colour='gray90', size=4, hjust=1, vjust=1) +
+  geom_point(aes(x, y), data = d[match(i_f, d$i),], colour='gray90', size=1) + 
+  scale_x_continuous(
+     name = 'Bird Sensitivity', breaks=brks, labels=lbls_B, trans='reverse') +
+   scale_y_continuous(
+     name = 'Industry NPV', breaks=brks, labels=lbls_I) +
+  coord_cartesian(xlim = c(-0.01,1), ylim = c(0,1.01)) +
+  theme_bw()+
+  theme(
+    legend.title = element_blank())
+p
+pdf = 'img/birds_vs_industry8.pdf'
+ggsave(pdf, p, scale=0.5)
+system(sprintf('open %s', pdf))
+
+# calculate distance to frontier for raster ----
+d$d2frontier = as.vector(gDistance(SpatialPoints(d[,c('x','y')]), ln, byid=TRUE))
+
+r_f = r_b
+r_f[!1:ncell(r_f) %in% d$i] = 0
+r_f_l10 = r_f_l = r_f
+r_f[d$i] = d$d2frontier
+r_f_l[d$i] = log(d$d2frontier + 0.000001) # %>% range ; iplot(r_f)
+r_f_l10[d$i] = log(d$d2frontier + 0.000001) # %>% range ; iplot(r_f)
+r_f[d$i] = log10(d$d2frontier + 0.000001) # %>% range
+r_f = mask(r_f, r_b); iplot(r_f)
+
+ll_pts = SpatialPoints(coordinates(r_b)[i_f,], proj4string=crs(r_b)) %>%
+      spTransform(crs(leaflet:::epsg4326)) %>%
+      coordinates()
+lbl_pts = data_frame(
+  i     = i_f,
+  label = lbl_f,
+  x     = coordinates(r_b)[i_f,'x'],
+  y     = coordinates(r_b)[i_f,'y'],
+  lon   = ll_pts[,'x'],
+  lat   = ll_pts[,'y'],
+  B_ssi = r_b[i_f],
+  I_usm = r_i[i_f],
+  d2frontier_log = d$d2frontier[match(i_f, d$i)],
+  d2frontier_log = log(d$d2frontier[match(i_f, d$i)]) + 0.000001,
+  d2frontier_log10 = log10(d$d2frontier[match(i_f, d$i)]) + 0.000001); lbl_pts
+
+plot_raster(r_f, r_depth, ma, pdf_path='img/map_birds_vs_industry8_frontier_log.pdf', lbl_pts = lbl_pts, lbl_col='white', awc=T)
+plot_raster(r_f, r_depth, ma, pdf_path='img/map_birds_vs_industry8_frontier_log.pdf', lbl_pts = lbl_pts, lbl_col='white', awc=T)
+write_csv(lbl_pts, 'data/birds_vs_industry8_frontierpts.csv')
+```
+
+```{r cetaceans ma time, echo=FALSE}
+#lbl_pts = read_csv('data/birds_vs_industry8_frontierpts.csv')
+
+# now with utility hotspots (vs dist2frontier)
+lbl_pts = read_csv(
+'label,i
+E,1615
+B,4138
+F,918
+D,2095
+C,3430
+A,4322')
+
+r_b = raster(stack('data/birds/spp_birds_aea.grd'), 'BIRDS_nw') %>%
+  crop_na() #; iplot(r_b, 'r_b')
+s_c = stack('data/species/spp_EC_nzw_aea.grd') %>% # plot(raster(s_c,'ALL_nfzw'))
+  crop(r_b) %>%
+  mask(r_b)
+# r_c = raster(s_c,'ALL_nfzw') %>% # plot(raster(s_c,'ALL_nfzw'))
+#   crop(r_b) %>%
+#   mask(r_b) %>%
+#   crop_na() #; plot(r_b) plot(r_c), 'nzw')
+r_c = raster(s_c,'ALL_nfzw') %>% # plot(raster(s_c,'ALL_nfzw'))
+  crop_na() #; plot(r_b) plot(r_c), 'nzw')
+
+#v = data_frame()
+# c_ll@data %>%
+#   select(id, val) %>%
+#   merge(data_frame(mo = 1:12))
+suppressWarnings(rm('v'))
+for (mo in 1:12){ # mo = 1
+  # get raster
+  lyr = sprintf('ALL_nfzw_%02d', mo)
+  r = raster(s_c, lyr) %>%
+    crop_na() 
+  #plot(r, main=lyr)
+  # TODO: plot some of these cetacean sensitivity maps by lowest months (3,5,8,11,12) with site labels
+  
+  # extract values
+  v_mo = data.frame(
+    label = lbl_pts$label,
+    mo    = mo,
+    val   = r[lbl_pts$i])
+
+  # bind to stack
+  if (!exists('v')){
+    v = v_mo
+  } else {
+    v = bind_rows(v, v_mo)
+  }
+}
+
+summary(v$val)
+#    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# -10.200  -5.460  -0.193  -1.460   1.990   5.410 
+
+# rescale values 0 to 1
+v = v %>%
+  rename(site=label) %>%
+  mutate(
+    val = rescale(val))
+summary(v$val)
+#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.000   0.305   0.642   0.561   0.781   1.000
+
+# TODO: redo conservation risk index so doesn't go negative, outputs are decimal, and rescaled from quantiles across entire year of population estimates.
+
+# get month per site with minimum value
+v_min = v %>% 
+  group_by(site) %>% 
+  mutate(site_rank = rank(val)) %>%
+  arrange(site, site_rank, val) %>%
+  filter(site_rank == 1)
+
+img_whale = image_data('18438875-f6e8-4e46-8fda-5a07bd4c1a85', size=1024)[[1]]
+f_pdf = 'img/cetaceans_time_utilitypts_phylopicwhale.pdf'
+pdf(f_pdf)
+p = ggplot(v, aes(x=mo, y=val, col=site)) + 
+  geom_line(size=1) +
+  coord_cartesian(xlim = c(1, 12)) + 
+  xlab('Month') + ylab('Cetacean Sensitivity') + # scale_x_date(format = "%b-%Y") + 
+  #scale_x_continuous(breaks=c(1,3,6,9,12), minor_breaks=seq(1,12,by=1), labels=month.abb[c(1,3,6,9,12)]) +
+  scale_x_discrete(labels=month.abb) +
+  geom_point(aes(x=mo, y=val, col=site), data=v_min, cex=5) + 
+  theme(legend.justification=c(1,1), legend.position=c(1,1)) + 
+  add_phylopic(img_whale, alpha=1, x=9.3, y=0.98, ysize=1)
+print(p)
+dev.off()
+system(sprintf('open %s', f_pdf))
+#ggsave('img/cetaceans_time_frontierpts_phylopicwhale.png')
+```
+
+```{r map cetacean sensitivity}
+lbl_pts = pts %>%
+  left_join(
+    d_sum, by='i') %>%
+  rename(x_0=x, y_0=y) %>%
+  inner_join(
+    coordinates(r_b) %>%
+      as.data.frame() %>%
+      mutate(
+        i = row_number()),
+    by='i')
+
+# TODO: plot some of these cetacean sensitivity maps by lowest months (3,5,8,11,12) with site labels
+source('functions.R')
+#for (mo in 1:12){ # mo = 3
+for (mo in c(3,5,8,11,12)){ # mo = 3
+  r_c = raster(s_c, sprintf('ALL_nfzw_%02d', mo))
+  # TODO: fix this rescale hack like mentioned in above TODO:
+  #   redo conservation risk index so doesn't go negative, outputs are decimal, 
+  #   and rescaled from quantiles across entire year of population estimates.
+  values(r_c) = rescale(values(r_c))
+  if (mo==3){
+    plot_raster(
+      r_c, r_depth, ma, pdf_path=sprintf('img/map_cetacean-sensitivity_mo%02d-%s_phylopic.pdf', mo, month.abb[mo]), 
+      awc=T, depth_do = F, quantile_do = F, lbl_pts = lbl_pts, lbl_col='black', phylopic='balaena')
+  } else {
+    plot_raster(
+      r_c, r_depth, ma, pdf_path=sprintf('img/map_cetacean-sensitivity_mo%02d-%s.pdf', mo, month.abb[mo]), 
+      awc=T, depth_do = F, quantile_do = F, lbl_pts = lbl_pts, lbl_col='black')
+  }
+}
+  
+  
+
+lyr = 
+r =  %>%
+  crop_na() 
+#plot(r, main=lyr)
+
+
+
+
+```
+
+
+
+```{r old dygraph}
+# old interactive ----    
+# TODO: animation of graph changing over time
+mos = as.Date(sprintf('2015-%02d-01', 1:12))
+v %>%
+  spread(site, val) %>%
+  replace(is.na(.), 0) %>%
+  arrange(mo) %>%
+  select(-mo) %>%
+  as.xts(., order.by=mos, names=months(mos, abbreviate=T)) %>%
+  dygraph() %>%
+  #dyHighlight() %>%
+  dyHighlight(highlightSeriesBackgroundAlpha = 0.2) #%>%
+    #highlightCircleSize = 5, 
+    #hideOnMouseOut = FALSE) %>%
+  #dyOptions(stepPlot=T) 
+
+# TODO: show avg per cell
+# %>% dySeries("V1", strokeWidth = 2, strokePattern = "dashed")
+
+# TODO: upper/lower bars w/ sdm confidence
+#   http://rstudio.github.io/dygraphs/gallery-upper-lower-bars.html
+```
+
+
+
+
+```{r tradeoff plot birds vs industry}
+r_B  = raster(S, 'BIRDS_nw')
+r_I  = raster(S, 'npv_US_millions_8_idwf')
+
+
+# what is x? this chunk presumably a fragment of above
+c_id  = x$i[xi]
+c_n   = length(c_id)
+c_xy  = coordinates(S)[c_id,]
+c_pts = SpatialPointsDataFrame(
+  c_xy, proj4string=CRS(proj4string(S)), data=data.frame(i=1:c_n)) #,
+c_ll = spTransform(c_pts, leaflet:::epsg4326)
+c_ll@data = c_ll@data %>%
+  mutate(
+    id  = c_id,
+    lbl = c_id,
+    B   = r_B[c_id],
+    I   = r_I[c_id],
+    #col = brewer.pal(c_n, 'Spectral'),
+    x   = coordinates(c_xy)[,'x'],
+    y   = coordinates(c_xy)[,'y'],
+    lon = coordinates(c_ll)[,'x'],
+    lat = coordinates(c_ll)[,'y'])
+with(c_ll@data, plot(B, I, xlim=rev(range(B))))
+
+# TODO: check in ArcGIS since pts are off grids.
+writeRaster(r_i, 'data/birds/r_i_8_idwf_aea.tif')
+writeRaster(r_b, 'data/birds/r_b_nw_aea.tif')
+writeOGR(c_pts, 'data/birds', 'birds_vs_industry_pts_aea', driver='ESRI Shapefile')
+writeOGR(c_ll, 'data/birds', 'birds_vs_industry_pts_gcs', driver='ESRI Shapefile')
+
+r_I_mer = projectRasterForLeaflet(r_I)  
+r_B_mer = projectRasterForLeaflet(r_B)  
+r = r_B_mer # r_I_mer r_I
+r = r_I_mer # r_I_mer r_I
+# get color palette
+pal = colorNumeric(
+  rev(brewer.pal(11, 'Spectral')), 
+  values(r), na.color = "transparent")
+
+# interactive map
+leaflet() %>%
+  addTiles() %>%
+  addProviderTiles("Stamen.TonerLite", options = providerTileOptions(noWrap = TRUE)) %>%
+  addRasterImage(r, colors=pal, project=F, opacity=0.8, group='r') %>% # CAREFUL! assumes r = projectRasterForLeaflet(r_0)  
+  addLegend(pal=pal, position='bottomright', values=values(r), title='r') %>%
+  #addMarkers(data=c_ll, popup = ~value)
+  addMarkers(
+    data=c_ll,
+    popup = sprintf('<b>%d.<b><br>B: %0.3f<br>I: %0.3f', c_ll$lbl, c_ll$B, c_ll$I), group='Points') %>%
+  addLayersControl(
+    overlayGroups = c('r', 'Points'),
+    options = layersControlOptions(collapsed=T))
+
+iplot(r_i8)
+s_ec_mer  = stack('data/species/spp_EC_nzw_mer.grd')
+```
+
+## EC
+
+```{r quickfix, eval=F, echo=F}
+for (prj in c('mer','aea')){ # prj='mer'
+  
+  cat(sprintf('reading grd_%s\n', prj))
+  s_0     = stack(sprintf('data/species/spp_EC_nzw_%s_0.grd', prj))
+  s_1to12 = stack(sprintf('data/species/spp_EC_nzw_%s_1to12.grd', prj))
+  s = stack(s_0, s_1to12)
+  
+  cat(sprintf('writing grd_%s\n', prj))
+  writeRaster(s, sprintf('data/species/spp_EC_nzw_%s.grd', prj), overwrite=F)
+}
+```
+
+```{r cetaceans_ec, echo=FALSE}
+s_ec_mer  = stack('data/species/spp_EC_nzw_mer.grd')
+
+iplot(raster(s_ec_mer,'Brydes_whale_n'), 'Brydes_whale_n')
+hist(values(raster(s_ec_mer,'Brydes_whale_n')))
+table(values(raster(s_ec_mer,'Brydes_whale_n')))
+names(s_ec_mer)
+iplot(raster(s_ec_mer,'ALL_i'), 'i')
+iplot(raster(s_ec_mer,'ALL_nf'), 'n')
+iplot(raster(s_ec_mer,'ALL_nfz'), 'nz')
+iplot(raster(s_ec_mer,'ALL_nfzw'), 'nzw')
+```
+
+: avg density [n; sum(n)/i; # / 100km^2]
+: avg weighted normalized density (nzw = nz * w)
+
+## EC, Over Time
+
+```{r cetaceans_ec_time, echo=FALSE}
+r = raster(s_ec_mer,'ALL_nfzw')
+
+# cells 
+# manually get c_id's by clicking on map:  plot(r); click(r, cell=T, id=T)
+c_id  = c(41935, 16016, 12146, 30162, 34222)
+c_n   = length(c_id)
+c_xy  = coordinates(r)[c_id,]
+c_pts = SpatialPointsDataFrame(
+  c_xy, proj4string=CRS(proj4string(r)), data=data.frame(i=1:c_n)) #,
+c_ll = spTransform(c_pts, leaflet:::epsg4326)
+
+c_ll@data = c_ll@data %>%
+  mutate(
+    id  = c_id,
+    val = r[c_id],
+    col = brewer.pal(c_n, 'Spectral'),
+    x   = coordinates(c_xy)[,'x'],
+    y   = coordinates(c_xy)[,'y'],
+    lon = coordinates(c_ll)[,'x'],
+    lat = coordinates(c_ll)[,'y'])
+
+# get color palette
+pal = colorNumeric(
+  rev(brewer.pal(11, 'Spectral')), 
+  values(r), na.color = "transparent")
+
+# interactive map
+leaflet() %>%
+  addTiles() %>%
+  addProviderTiles("Stamen.TonerLite", options = providerTileOptions(noWrap = TRUE)) %>%
+  addRasterImage(r, colors=pal, project=F, opacity=0.8, group='Raster nfzw') %>%
+  addLegend(pal=pal, position='bottomright', values=values(r), title='nfzw') %>%
+  #addMarkers(data=c_ll, popup = ~value)
+  addMarkers(
+    data=c_ll,
+    popup = sprintf('%d. nfzw: %0.1f', c_ll$i, c_ll$val), group='Points') %>%
+  addLayersControl(
+    overlayGroups = c('Raster nfzw', 'Points'),
+    options = layersControlOptions(collapsed=T))
+
+
+#v = data_frame()
+# c_ll@data %>%
+#   select(id, val) %>%
+#   merge(data_frame(mo = 1:12))
+suppressWarnings(rm('v'))
+for (mo in 1:12){ # mo = 6
+  # get raster
+  r = raster(s_ec_mer, sprintf('ALL_nfzw_%02d', mo))
+  #plot(r)
+  
+  # extract values
+  v_mo = data.frame(
+    i   = 1:c_n,
+    mo  = mo,
+    val = r[c_id])
+
+  # bind to stack
+  if (!exists('v')){
+    v = v_mo
+  } else {
+    v = bind_rows(v, v_mo)
+  }
+}
+
+plot(r)
+text(c_xy, as.character(1:c_n))
+
+# TODO: animation of graph changing over time
+mos = as.Date(sprintf('2015-%02d-01', 1:12))
+v %>%
+  spread(i, val) %>%
+  replace(is.na(.), 0) %>%
+  arrange(mo) %>%
+  select(-mo) %>%
+  as.xts(., order.by=mos, names=months(mos, abbreviate=T)) %>%
+  dygraph() %>%
+  #dyHighlight() %>%
+  dyHighlight(highlightSeriesBackgroundAlpha = 0.2) %>%
+    #highlightCircleSize = 5, 
+    #hideOnMouseOut = FALSE) %>%
+  dyOptions(stepPlot=T) 
+
+# TODO: show avg per cell
+# %>% dySeries("V1", strokeWidth = 2, strokePattern = "dashed")
+
+# TODO: upper/lower bars w/ sdm confidence
+#   http://rstudio.github.io/dygraphs/gallery-upper-lower-bars.html
+```
+
+TODO: zoom into pixel and break down across time by species.
+
+## GOM
+
+```{r cetaceans_gom, echo=FALSE}
+s_gom_mer = stack('data/species/spp_GOM_nzw_mer.grd')
+
+iplot(raster(s_gom_mer,'ALL_i'), 'i')
+iplot(raster(s_gom_mer,'ALL_nf'), 'n')
+iplot(raster(s_gom_mer,'ALL_nfz'), 'nz')
+iplot(raster(s_gom_mer,'ALL_nfzw'), 'nzw')
+```
+
+
+```{r create_old, eval=FALSE, echo=FALSE}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(leaflet)
+  library(raster)})
+
+source('functions.R')
+r_depth = raster('data/physiographic/EC_Depth_10km_mean_10km.img')
+plot(raster('data/physiographic/EC_Depth_10km_mean_10km.img'))
+plot(raster('data/physiographic/EC_Shore_Dist_10km_mean_10km.img'))
+plot(raster('data/physiographic/EC_Slope_10km_mean_10km.img'))
+
+library(rgdal)
+windspeed90m = readOGR(
+  'data/wind_intensity/Atlantic_Coast_90m_Windspeed_Offshore_Wind_High_Resolution',
+  'atlantic_coast_90mwindspeed_off')
+plot(windspeed90m)
+hist(windspeed90m@data$Speed_90) # 5-10 m/s
+
+windspeed90m_aea = spTransform(windspeed90m, CRS(proj4string(r_depth)))
+r_windspeed90m_aea = rasterize(windspeed90m_aea, r_depth, 'Speed_90')
+writeRaster(r_windspeed90m_aea, 'data/wind/windspeed90m_aea.grd')
+iplot(r_windspeed90m_aea)
+```
+

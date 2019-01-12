@@ -1,0 +1,55 @@
+---
+title: "Appendix"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Birds
+
+```{r birds}
+library(tidyverse)
+library(DT)
+
+w_b = read_csv('data/birds/sp_avian_w.csv') %>%
+  mutate(
+    owed_val = max(c(coll_val, displ_val)))
+
+w_b %>%
+  select(sp_scientific, sp_common_us, owed_val) %>%
+  arrange(owed_val, sp_scientific) %>%
+  datatable()
+```
+
+```{r}
+library(raster)
+
+s_b = stack('~/github/consmap-prep/data/birds/spp_birds_aea.grd')
+
+tibble(
+  sci = names(s_b),
+  
+
+
+```
+
+```{r}
+library(gapminder)
+library(trelliscopejs)
+library(ggplot2)
+library(dplyr)
+library(rbokeh)
+
+gapminder %>%
+  group_by(country, continent) %>%
+  nest() %>%
+  mutate(panel = map_plot(data,
+    ~ figure(ylim = c(10, 95), toolbar = NULL, width = 300) %>%
+        ly_points(year, lifeExp, hover = .x, data = .x) %>%
+        theme_axis("x", major_label_orientation = 45))) %>%
+  trelliscope(name = "gapminder_lifeexp", nrow = 2, ncol = 6)
+```
+
+
