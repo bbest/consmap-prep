@@ -1,10 +1,13 @@
 options(error=NULL)
 
 iplot = function(x, legend.title=''){
+  # x = raster(stk_i, 'depth'); legend.title='depth'
+  
   library(stringr)
   library(RColorBrewer)
   library(leaflet)
   library(raster)
+  addLegend = leaflet::addLegend
   
   if (class(x) == 'RasterLayer'){
     
@@ -88,6 +91,7 @@ plot_raster = function(
   par_mar=c(4,4,0,1.5)+0.2, # c(bottom, left, top, right)
   lbl_pts = NULL, lbl_col='gray90',
   depth_do = T,
+  wea_do = F,
   quantile_do = F,
   quantile_vals = c(0.4,0.6,0.8),
   quantile_cols = c('darkblue','darkgreen','darkred'),
@@ -96,6 +100,43 @@ plot_raster = function(
   
   # example: 
   #   plot_raster(r_b_c, r_depth, st=ma, pdf_path = 'img/birds_mid-atlantic.pdf')
+  # plot_raster(r_i6, r_depth, ma, pdf_path='img/industry_npv6_mid-atlantic.pdf', phylopic='wind turbine')
+  # r=r_i6; r_depth=r_depth; st=ma; pdf_path='img/industry_npv6_mid-atlantic.pdf'; phylopic='wind turbine'
+  # col = rev(colorRampPalette(brewer.pal(11,'Spectral'))(255));
+  # r_extend = c(2,2); bg = 'gray80'
+  # pdf_height = 7; pdf_open = T
+  # graticule_x = seq(-65,-80); graticule_y = seq(34,43)
+  # awc=F
+  # study_area=F
+  # par_mar=c(4,4,0,1.5)+0.2
+  # lbl_pts = NULL; lbl_col='gray90'
+  # depth_do = T
+  # quantile_do = F
+  # quantile_vals = c(0.4,0.6,0.8)
+  # quantile_cols = c('darkblue','darkgreen','darkred')
+  # quantile_labs = c('60%','40%','20%')
+  # quantile_lwd = 2
+  
+  # plot_raster(r_u, r_depth, ma, pdf_path='img/map_birds_vs_industry8_utility_2019-01-wea.pdf', 
+  # awc=F, depth_do = F, quantile_do = T, 
+  # wea_do=T, # NEW!
+  # lbl_pts = lbl_pts, lbl_col='black')
+  #
+  # r=r_u; r_depth=r_depth; st=ma; pdf_path='img/map_birds_vs_industry8_utility_2019-01-wea.pdf'
+  # awc=T; depth_do = F; quantile_do = T
+  # wea_do=T # NEW!
+  # lbl_pts = lbl_pts; lbl_col='black'
+  # phylopic=''
+  # col = rev(colorRampPalette(brewer.pal(11,'Spectral'))(255));
+  # r_extend = c(2,2); bg = 'gray80'
+  # pdf_height = 7; pdf_open = T
+  # graticule_x = seq(-65,-80); graticule_y = seq(34,43)
+  # study_area=F
+  # par_mar=c(4,4,0,1.5)+0.2
+  # quantile_vals = c(0.4,0.6,0.8)
+  # quantile_cols = c('darkblue','darkgreen','darkred')
+  # quantile_labs = c('60%','40%','20%')
+  # quantile_lwd = 2
 
   # turn on pdf device
   pdf(pdf_path, width=pdf_width, height=pdf_height)
@@ -119,14 +160,23 @@ plot_raster = function(
   par_gcs = projectExtent(par_aea, crs=CRS(leaflet:::epsg4326))
   
   # plot background color
+  if (wea_do){
+    bg = "white"
+  }
   rect(p[1], p[3], p[2], p[4], col=bg)
   
   if (study_area){
     # plot study area polygon
     plot(study, col=NA, border='red', lwd=2, add=T)
   } else {
-    # plot raster colors
-    plot(r, col=col, xaxs='r', yaxs='r', asp=1, useRaster=F, xaxt='n', yaxt='n', add=T)
+    if (wea_do){
+      # plot raster grays
+      col = rev(colorRampPalette(gray.colors(12))(255))
+      plot(r, col=col, xaxs='r', yaxs='r', asp=1, useRaster=F, xaxt='n', yaxt='n', add=T)
+    } else {
+      # plot raster colors
+      plot(r, col=col, xaxs='r', yaxs='r', asp=1, useRaster=F, xaxt='n', yaxt='n', add=T)
+    }
   }
   
   # plot Atlantic Wind Connection
@@ -220,6 +270,46 @@ plot_raster = function(
       labcex = 0.8, font = 2, col='gray20', add=T)
   }
   
+  # wind energy areas (wea)
+  if (wea_do){
+    library(sf)
+    boem  <- rbind(
+      read_sf("data/boem/BOEM_Renewable_Energy_Areas_Shapefiles_10_24_2018/BOEM_Lease_Areas_10_24_2018.shp") %>% 
+        mutate(
+          leased = TRUE) %>% 
+        select(name = Company, leased),
+      read_sf("data/boem/BOEM_Renewable_Energy_Areas_Shapefiles_10_24_2018/BOEM_Wind_Planning_Areas_10_24_2018.shp") %>% 
+        filter(
+          !CAT1 %in% c("California Call Area","Hawaii Call Area")) %>% 
+        mutate(
+          leased = TRUE) %>% 
+        select(name = INFO, leased)) %>% 
+      st_transform(raster::projection(par_aea))
+
+    boem_grouped_shp <- "data/boem/boem_grouped_aea.shp"
+    if (!file.exists(boem_grouped_shp)){
+      boem_grouped <- boem %>% 
+        group_by(name, leased) %>% 
+        summarize(n = n()) %>% 
+        ungroup() %>% 
+        mutate(
+          area_km2 = st_area(geometry) %>% units::set_units(km^2))
+      write_sf(boem_grouped, boem_grouped_shp)
+    }
+    
+    boem <- boem %>% as("Spatial")
+    boem@data$name <- as.factor(boem@data$name)
+    
+    # plot raster b&w
+    #rect(p[1], p[3], p[2], p[4], col=bg) # bg="gray80"
+    # rect(p[1], p[3], p[2], p[4], col="white")
+    # col = rev(colorRampPalette(gray.colors(12))(255))
+    # plot(r, col=col, xaxs='r', yaxs='r', asp=1, useRaster=F, xaxt='n', yaxt='n', add=T)
+    
+    pal <- leaflet::colorFactor("Spectral", domain=boem@data$name) # boem@data$name)
+    #plot(boem["name"], border=NA, col=alpha(pal(boem@data$name), 0.5), add=T)
+    plot(boem["name"], border=NA, col=alpha(pal(boem@data$name), 0.9), add=T)
+  }
   
   # quantile contours
   if (quantile_do){
@@ -241,21 +331,26 @@ plot_raster = function(
     #http://phylopic.org/image/0871b630-2dcd-4d35-b0a4-6a6551140553/
     library(rphylopic)
     img = image_data('0871b630-2dcd-4d35-b0a4-6a6551140553', size=128)[[1]]
-    add_phylopic_base(img, alpha=1, x=p[1]+(p[2]-p[1])/8, y=p[4]-(p[4]-p[3])/8, ysize=(p[4]-p[3])/6)
+    #add_phylopic_base(img, alpha=1, x=p[1]+(p[2]-p[1])/8, y=p[4]-(p[4]-p[3])/8, ysize=(p[4]-p[3])/6)
+    #add_phylopic_base(img, 0.5, 0.5, 0.2)
+    add_phylopic_base(img, alpha=1, 0.08, 0.8, 0.12)
   }
   if (phylopic=='balaena'){
     #http://phylopic.org/image/18438875-f6e8-4e46-8fda-5a07bd4c1a85/
     library(rphylopic)
     # plot(r_i6)
     img = image_data('18438875-f6e8-4e46-8fda-5a07bd4c1a85', size=128)[[1]] # grid::grid.raster(img)
-    add_phylopic_base(img, alpha=1, x=p[1]+(p[2]-p[1])/6, y=p[4]-(p[4]-p[3])/6, ysize=(p[4]-p[3])/12) #, col='green')
+    #add_phylopic_base(img, alpha=1, x=p[1]+(p[2]-p[1])/6, y=p[4]-(p[4]-p[3])/6, ysize=(p[4]-p[3])/12) #, col='green')
+    add_phylopic_base(img, alpha=1, 0.15, 0.85, 0.25)
   }
   if (phylopic=='wind turbine'){
-    img = httr::content(httr::GET('file:/Users/bbest/github/consmap-prep/img/phylopics/ian-symbol-energy-wind-turbine-1_black.png'))
+    #img = httr::content(httr::GET('file:/Users/bbest/github/consmap-prep/img/phylopics/ian-symbol-energy-wind-turbine-1_black.png'))
+    img = png::readPNG(here::here('img/phylopics/ian-symbol-energy-wind-turbine-1_black.png'))
     img = array(c(matrix(0, nrow=nrow(img), ncol=ncol(img)), img), dim=c(nrow(img), ncol(img), 4))
     img[,,1:3] = 0
     img[,,4] = ifelse(img[,,4]==1, 0,1)
-    add_phylopic_base(img, alpha=1, x=p[1]+(p[2]-p[1])/10, y=p[4]-(p[4]-p[3])/5, ysize=(p[4]-p[3])/3)
+    #add_phylopic_base(img, alpha=1, x=p[1]+(p[2]-p[1])/10, y=p[4]-(p[4]-p[3])/5, ysize=(p[4]-p[3])/3)
+    add_phylopic_base(img, alpha=1, 0.08, 0.8, 0.12)
   }
   
   #http://phylopic.org/image/0871b630-2dcd-4d35-b0a4-6a6551140553/

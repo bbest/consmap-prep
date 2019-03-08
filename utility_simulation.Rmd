@@ -438,9 +438,28 @@ lbl_pts = pts %>%
     by='i')
 
 source('functions.R')
+
+# redo
+#lbl_pts <- read_csv('data/birds_vs_industry8_frontierpts.csv')
+lbl_pts <- read_csv('data/birds_vs_industry_frontierpts.csv')
+r_u <- raster('~/github/siting/data/utility/utility_birds-vs-industry8_v2_raster')
+
 plot_raster(
-  r_u, r_depth, ma, pdf_path='img/map_birds_vs_industry8_utility.pdf', awc=T, depth_do = F, quantile_do = T,
+  r_u, r_depth, ma, pdf_path='img/map_birds_vs_industry8_utility_2019-01.pdf',
+  awc=T, depth_do = F, quantile_do = T,
   lbl_pts = lbl_pts, lbl_col='black')
+
+# plot_raster(
+#   r_u, r_depth, ma, pdf_path='img/map_birds_vs_industry8_utility_2019-01-wea.pdf',
+#   awc=F, depth_do = F, quantile_do = T, 
+#   wea_do=T, # NEW!
+#   lbl_pts = lbl_pts, lbl_col='black')
+source('functions.R')
+plot_raster(
+  r_u, r_depth, ma, pdf_path='img/map_birds_vs_industry8_utility_2019-01-wea.pdf',
+  awc=F, depth_do = F, quantile_do = T, quantile_lwd = 0.5,
+  wea_do=T, # NEW!
+  lbl_pts = NULL, lbl_col='black')
 ```
 
 ```{r write_csv birds_vs_wind8_utilitypts}

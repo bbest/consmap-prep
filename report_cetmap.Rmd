@@ -3,6 +3,8 @@ title: "README for consmap-prep"
 author: "Ben Best"
 date: "October 6, 2015"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Overview
@@ -47,7 +49,7 @@ suppressPackageStartupMessages({
   library(dygraphs)
   library(graticule)
   library(rphylopic)
-  #library(GISTools) # using GISTools::
+  library(GISTools) # using GISTools::
   })
 select = dplyr::select
 
@@ -368,6 +370,7 @@ b %>%
 ```
 
 
+
 ```{r birds shps, eval=F, echo=F}
 
 b_w = read_csv('data/birds/sp_avian_w.csv') %>%
@@ -486,12 +489,18 @@ e_c = extent(
 r_b <- crop(r_b, e_c) # plot(r_b)
 
 # get USA states
-us = getData('GADM', country="USA", level=1)
+#us = getData('GADM', country="USA", level=1)
+us = rnaturalearth::ne_states(iso_a2 = "US")
 us@data = us@data %>%
   mutate(
     lon = coordinates(us)[,1],
     lat = coordinates(us)[,2],
-    code = c(setNames(state.abb, state.name), 'District of Columbia'='DC')[NAME_1])
+    code = c(setNames(state.abb, state.name), 'District of Columbia'='DC')[name])
+#    code = c(setNames(state.abb, state.name), 'District of Columbia'='DC')[NAME_1])
+#us_gadm@data$NAME_1
+#View(us@data$name)
+#sum(!us@data$name %in% us_gadm@data$NAME_1)
+
 # get East Coast states
 ec = subset(us,
   code %in% 
@@ -507,6 +516,10 @@ ma_gcs = subset(us,
     c('NY','MA','RI','CT','PA','NJ','MD','DE','DC','WV','VA','NC')) # Mid-Atlantic
 # project to aea
 ma = spTransform(ma_gcs, crs(r_b))
+#ma_gadm <- ma
+#plot(ma_gadm)
+#plot(ma)
+
 # get plotting coordinates
 ma@data = ma@data %>%
   mutate(
@@ -531,30 +544,72 @@ library(marmap)
 r_depth = as.raster(getNOAA.bathy(-78, -66, 34, 43))
 ```
 
-
 ```{r map birds}
 plot_raster(r_b, r_depth, ma, pdf_path='img/study_mid-atlantic.pdf', awc=T, study_area=T, par_mar=c(4,4,0,0)+0.2) # c(bottom, left, top, right)
+# source('functions.R')
 plot_raster(r_b, r_depth, ma, pdf_path='img/birds_mid-atlantic.pdf', phylopic='herring gull', depth_do = F, quantile_do = T)
 ```
 
+## Plot Individual Birds (2019-01)
 
-## InVEST + Birds
+```{r}
+library(tidyverse)
+bird_spp_nw <- str_extract(names(s_b), ".*_nw$") %>% na.omit()
+
+for (b_sp in bird_spp_nw){ # b_sp = bird_spp_nw[1]
+  r_b_sp <- raster(s_b, b_sp) %>% crop(e_c)
+  plot_raster(r_b_sp, r_depth, ma, pdf_path=glue::glue('img/bird_{b_sp}.pdf'), depth_do = F, quantile_do = T)
+}
+
+#library(magick)
+library(pdftools)
+library(glue)
+
+for (b_sp in sort(bird_spp_nw)){ # b_sp = sort(bird_spp_nw)[1]
+  pdf_convert(glue('img/bird_{b_sp}.pdf'), filenames=glue('img/bird_{b_sp}.tif'), dpi=300, format="tiff")
+}
+```
+
+
+
+## Redo Figs GADM to NaturalEarth (2019-03)
+
+```{r}
+library(pdftools)
+library(glue)
+
+pdfs <- list.files("~/Gdrive Ecoquants/manuscripts/2019 siting /revision1_2019-03-07/figures/pdf", ".*\\.pdf$", full.names = T)
+for (pdf in pdfs){ # pdf = pdfs[1]
+  tif <- glue("{dirname(pdf)}/../{fs::path_ext_remove(basename(pdf))}.tif")
+  pdf_convert(pdf, filenames=tif, dpi=300, format="tiff")
+}
+```
+
+
+
+## InVEST
 
 ```{r map invest}
 r_i6 =  mask(projectRaster(raster('data/wind/npv_US_millions_6.tif'), r_b), r_b)
 r_i8 =  mask(projectRaster(raster('data/wind/npv_US_millions_8_idwf.tif'), r_b), r_b)
 
+# source('functions.R')
 plot_raster(r_i6, r_depth, ma, pdf_path='img/industry_npv6_mid-atlantic.pdf', phylopic='wind turbine')
 plot_raster(r_i8, r_depth, ma, pdf_path='img/industry_npv8idwf_mid-atlantic.pdf', awc=T, phylopic='wind turbine')
 ```
 
+## Cetaceans
+
 ```{r map cetaceans}
 s_c  = stack('data/species/spp_EC_nzw_aea.grd')
-r_c = raster(s_c,'ALL_nfzw') %>%
-  mask(extend(r_b, r_c)) %>%
+# r_c = raster(s_c,'ALL_nfzw') %>%
+#   mask(extend(r_b, r_c)) %>%
+#   crop_na() #; iplot(r_c, 'nzw')
+r_c = raster(s_c,'ALL_nfzw') # plot(r_c) # plot(r_b)
+r_c = mask(r_c, extend(r_b, r_c)) %>%
   crop_na() #; iplot(r_c, 'nzw')
 
-r_c = r_c
+# source('functions.R')
 plot_raster(r_c, r_depth, ma, pdf_path='img/cetaceans_mid-atlantic.pdf', phylopic='balaena')
 
 for (i in 1:12){
@@ -566,7 +621,7 @@ for (i in 1:12){
 ```
 
 
-Scale 0-1.
+## Birds vs Industry
 
 ```{r birds vs industry iplot, eval=F, echo=F}
 library(ggplot2)
@@ -720,6 +775,11 @@ r_f_l[d$i] = log(d$d2frontier + 0.000001) # %>% range ; iplot(r_f)
 r_f_l10[d$i] = log(d$d2frontier + 0.000001) # %>% range ; iplot(r_f)
 r_f[d$i] = log10(d$d2frontier + 0.000001) # %>% range
 r_f = mask(r_f, r_b); iplot(r_f)
+r_f
+writeRaster(r_f, "data/utility/birds_vs_industry8_aea.tif")
+r_f_3857 <- projectRaster(r_f, projectExtent(r_f, crs = CRS(leaflet:::epsg3857)))
+plot(r_f_3857)
+plot(r_f)
 
 ll_pts = SpatialPoints(coordinates(r_b)[i_f,], proj4string=crs(r_b)) %>%
       spTransform(crs(leaflet:::epsg4326)) %>%
@@ -733,11 +793,10 @@ lbl_pts = data_frame(
   lat   = ll_pts[,'y'],
   B_ssi = r_b[i_f],
   I_usm = r_i[i_f],
-  d2frontier_log = d$d2frontier[match(i_f, d$i)],
+  #d2frontier_log = d$d2frontier[match(i_f, d$i)],
   d2frontier_log = log(d$d2frontier[match(i_f, d$i)]) + 0.000001,
   d2frontier_log10 = log10(d$d2frontier[match(i_f, d$i)]) + 0.000001); lbl_pts
 
-plot_raster(r_f, r_depth, ma, pdf_path='img/map_birds_vs_industry8_frontier_log.pdf', lbl_pts = lbl_pts, lbl_col='white', awc=T)
 plot_raster(r_f, r_depth, ma, pdf_path='img/map_birds_vs_industry8_frontier_log.pdf', lbl_pts = lbl_pts, lbl_col='white', awc=T)
 write_csv(lbl_pts, 'data/birds_vs_industry8_frontierpts.csv')
 ```
@@ -905,7 +964,7 @@ v %>%
 ```
 
 
-
+## Birds vs Industry II
 
 ```{r tradeoff plot birds vs industry}
 r_B  = raster(S, 'BIRDS_nw')
